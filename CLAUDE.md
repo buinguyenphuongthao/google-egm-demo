@@ -4,9 +4,9 @@ Demo of an agent-driven CI/CD pipeline. A small Notes app (SPA + API + DynamoDB 
 exists mainly to give the pipeline something real to gate. Every deploy must pass four gates:
 AI code review, AI security audit, Playwright E2E tests, and post-deploy smoke tests.
 
-> Status: design in progress (brainstorming). The design doc will live in
-> `docs/plans/`. Directories below are planned, not yet scaffolded. Update this file
-> as pieces land; keep it describing what IS, not what was planned.
+> Status: design approved, see `docs/plans/2026-10-31-agent-cicd-pipeline-design.md`.
+> Directories below are planned, not yet scaffolded. Update this file as pieces land;
+> keep it describing what IS, not what was planned.
 
 ## Architecture
 
@@ -63,6 +63,25 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 - Smoke tests must be safe against prod: they only create data tagged `smoke-<sha>` with a
   short DynamoDB TTL, and clean up after themselves.
 - E2E tests own the full UI flows; smoke tests stay small (under ~1 minute) and read-mostly.
+- DynamoDB changes are additive only (new attributes/indexes; no renames or removals in the
+  same release). Rollback redeploys code, not data, so the previous version must still work.
+
+## Failure handling
+
+- Agent gates fail closed: no valid verdict means a red check. An `incomplete` security
+  run is a failure, not a pass.
+- If prod smoke fails, `deploy.yml` redeploys the commit at git tag `prod-good`. The tag
+  moves only after a successful prod smoke run. Never move it by hand.
+
+## Agent guardrails
+
+- Hooks in `.claude/settings.json` and `.claude/hooks/` block dangerous commands, edits to
+  protected files (including the hooks themselves), and secrets in written content; every
+  tool call is logged to `.claude/audit.jsonl` (gitignored).
+- Hooks are guardrails, not a security boundary. Do not try to work around a blocked
+  action; stop and ask the user instead.
+- In CI, review and audit jobs restore `.claude/` from `main`, run with a read-only tool
+  allowlist, and have no AWS credentials. Only `deploy.yml` can touch AWS.
 
 ## Security-audit skill
 
