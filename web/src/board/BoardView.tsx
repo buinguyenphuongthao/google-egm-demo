@@ -118,6 +118,8 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
   // in flight at once (a title on blur, then a label click) could undo each other on the
   // server. Saves to each card therefore run one at a time.
   const cardSaves = useRef(new Map<string, Promise<boolean>>());
+  // Cards deleted in this session; their delete is queued like a save.
+  const deletedCards = useRef(new Set<string>());
   const queueCardSave = useCallback(
     (id: string, what: string, save: () => Promise<void>): Promise<boolean> => {
       const run = (cardSaves.current.get(id) ?? Promise.resolve(true)).then(() => attempt(what, save));
@@ -276,6 +278,8 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
     update((b) => ({ ...b, cards: b.cards.map((c) => (c.id === id ? { ...c, ...fields } : c)) }));
 
   const saveCard = (card: Card, input: CardEdit) => {
+    // Closing the panel of a card just deleted from it flushes unsaved text; drop that save.
+    if (deletedCards.current.has(card.id)) return Promise.resolve(true);
     patchCard(card.id, input);
     return queueCardSave(card.id, 'Could not save card', async () => {
       const saved = await api.updateCard(pid, card.id, input);
@@ -288,11 +292,18 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
       title: 'Delete card?',
       description: `This deletes the card "${card.title}". It cannot be undone.`,
       confirmLabel: 'Delete card',
-      run: () =>
-        void attempt('Could not delete card', async () => {
-          update((b) => ({ ...b, cards: b.cards.filter((c) => c.id !== card.id) }));
-          await api.deleteCard(pid, card.id);
-        }),
+      run: () => {
+        deletedCards.current.add(card.id);
+        update((b) => ({ ...b, cards: b.cards.filter((c) => c.id !== card.id) }));
+        void queueCardSave(card.id, 'Could not delete card', async () => {
+          try {
+            await api.deleteCard(pid, card.id);
+          } catch (err) {
+            deletedCards.current.delete(card.id);
+            throw err;
+          }
+        });
+      },
     });
 
   const openCard = openCardId ? cardsById.get(openCardId) : undefined;

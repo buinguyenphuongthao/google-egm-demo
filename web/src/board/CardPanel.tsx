@@ -65,7 +65,7 @@ function CardForm({
       const { card, title, description, onSave } = latest.current;
       const input: CardInput = {};
       if (title.trim() && title.trim() !== card.title) input.title = title.trim();
-      if (description.trim() !== card.description) input.description = description;
+      if (description.trim() !== card.description) input.description = description.trim();
       if (Object.keys(input).length > 0) void onSave(input);
     },
     [],
@@ -78,7 +78,7 @@ function CardForm({
   }
 
   function saveDescription() {
-    if (description.trim() !== card.description) void onSave({ description });
+    if (description.trim() !== card.description) void onSave({ description: description.trim() });
   }
 
   function toggle(label: Label) {

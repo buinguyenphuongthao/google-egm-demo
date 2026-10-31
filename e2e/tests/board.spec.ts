@@ -374,8 +374,12 @@ test('edits a card in the side panel', async ({ page, request, project }) => {
   await expect(panel.getByRole('button', { name: 'Urgent' })).toHaveAttribute('aria-pressed', 'true');
   // Closing with unsaved text still saves it.
   await panel.getByLabel('Description').fill('Line one\nLine two\nLine three');
+  const savedOnClose = page.waitForResponse(
+    (r) => r.request().method() === 'PATCH' && (r.request().postData() ?? '').includes('Line three'),
+  );
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
+  expect((await savedOnClose).status()).toBe(200);
 
   await expect(chipsOf(page, 'Panel card, edited')).toContainText(['Urgent']);
   await expect(cardsIn(page, 'To do').getByRole('img', { name: 'Has description' })).toBeVisible();
@@ -384,10 +388,19 @@ test('edits a card in the side panel', async ({ page, request, project }) => {
   await expect(panel.getByLabel('Description')).toHaveValue('Line one\nLine two\nLine three');
   await expect(panel.getByRole('button', { name: 'Urgent' })).toHaveAttribute('aria-pressed', 'true');
 
+  // Clicking Delete saves the edited text on blur; the delete waits for that save, and
+  // closing the panel does not save again, so nothing is sent to the deleted card.
+  await panel.getByLabel('Description').fill('Edited before delete');
   await panel.getByRole('button', { name: 'Delete card' }).click();
+  const patches: string[] = [];
+  page.on('request', (r) => r.method() === 'PATCH' && patches.push(r.url()));
+  const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete card' }).click();
   await expect(panel).toBeHidden();
   await expect(card(page, 'Panel card, edited')).toHaveCount(0);
+  expect((await deleted).status()).toBe(204);
+  expect(patches).toEqual([]);
+  await expect(page.getByText(/^Could not/)).toHaveCount(0);
   await page.reload();
   await expect(cardsIn(page, 'To do').getByRole('listitem')).toHaveCount(0);
 });
