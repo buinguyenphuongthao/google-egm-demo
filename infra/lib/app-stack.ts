@@ -11,6 +11,8 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import type { Construct } from 'constructs';
+import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 export interface AppStackProps extends StackProps {
   stage: 'staging' | 'prod';
@@ -74,14 +76,37 @@ export class AppStack extends Stack {
       autoDeleteObjects: !isProd,
     });
 
+    // Owner IPs (ip:<addr>) and the CI smoke token (smoke-token). Data is set by
+    // `npm run access`, never by CDK or CI. Read by the owner-only edge function.
+    const accessStore = new cloudfront.KeyValueStore(this, 'AccessStore', {
+      comment: `Owner-only access list for ${props.stage}`,
+    });
+    accessStore.applyRemovalPolicy(removalPolicy);
+    new CfnOutput(this, 'AccessStoreArn', { value: accessStore.keyValueStoreArn });
+
+    const ownerOnly = new cloudfront.Function(this, 'OwnerOnly', {
+      comment: 'Allow only owner IPs and the CI smoke token',
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      keyValueStore: accessStore,
+      code: cloudfront.FunctionCode.fromInline(
+        fs
+          .readFileSync(fileURLToPath(new URL('../edge/owner-only.js', import.meta.url)), 'utf8')
+          .replaceAll('__KVS_ID__', accessStore.keyValueStoreId),
+      ),
+    });
+    const ownerOnlyAssoc = [{ function: ownerOnly, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }];
+
     // apiEndpoint is https://<id>.execute-api.<region>.amazonaws.com; CloudFront wants the host.
     const apiDomain = Fn.select(2, Fn.split('/', api.apiEndpoint));
     const distribution = new cloudfront.Distribution(this, 'Site', {
       defaultRootObject: 'index.html',
+      // The owner allowlist holds IPv4 addresses only, so serve viewers over IPv4.
+      enableIpv6: false,
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(bucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
+        functionAssociations: ownerOnlyAssoc,
       },
       additionalBehaviors: {
         '/api/*': {
@@ -90,6 +115,7 @@ export class AppStack extends Stack {
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          functionAssociations: ownerOnlyAssoc,
         },
       },
     });
@@ -100,14 +126,6 @@ export class AppStack extends Stack {
       distribution,
       distributionPaths: ['/*'],
     });
-
-    // Owner IPs (ip:<addr>) and the CI smoke token (smoke-token). Data is set by
-    // `npm run access`, never by CDK or CI. Read by the owner-only edge function.
-    const accessStore = new cloudfront.KeyValueStore(this, 'AccessStore', {
-      comment: `Owner-only access list for ${props.stage}`,
-    });
-    accessStore.applyRemovalPolicy(removalPolicy);
-    new CfnOutput(this, 'AccessStoreArn', { value: accessStore.keyValueStoreArn });
 
     new CfnOutput(this, 'SiteUrl', { value: `https://${distribution.distributionDomainName}` });
   }

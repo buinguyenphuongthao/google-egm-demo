@@ -132,6 +132,45 @@ describe('AppStack', () => {
     t.hasOutput('AccessStoreArn', {});
   });
 
+  it.each([['staging', staging], ['prod', prod]] as const)(
+    '%s attaches the owner-only function to every behavior and disables IPv6',
+    (_s, t) => {
+      const storeIds = Object.keys(t.findResources('AWS::CloudFront::KeyValueStore'));
+      expect(storeIds).toHaveLength(1);
+      const storeId = storeIds[0]!;
+      // Logical id must keep the AccessStore prefix: a new id would replace the store and lose its data.
+      // Pinned: a different logical id would replace the deployed store and drop its data.
+      expect(storeId).toBe('AccessStore48D83FA1');
+
+      t.resourceCountIs('AWS::CloudFront::Function', 1);
+      const [fnId, fnRes] = Object.entries(t.findResources('AWS::CloudFront::Function'))[0]!;
+      const config = fnRes.Properties.FunctionConfig;
+      expect(config.Runtime).toBe('cloudfront-js-2.0');
+      // The Distribution can only reference a published function.
+      expect(fnRes.Properties.AutoPublish).toBe(true);
+      expect(JSON.stringify(config.KeyValueStoreAssociations)).toContain(
+        JSON.stringify({ 'Fn::GetAtt': [storeId, 'Arn'] }),
+      );
+
+      const code = JSON.stringify(fnRes.Properties.FunctionCode);
+      expect(code).not.toContain('__KVS_ID__');
+      expect(code).toContain('Fn::Join');
+      expect(code).toContain(JSON.stringify({ 'Fn::GetAtt': [storeId, 'Id'] }));
+
+      const [dist] = Object.values(t.findResources('AWS::CloudFront::Distribution'));
+      const cfg = dist!.Properties.DistributionConfig;
+      expect(cfg.IPV6Enabled).toBe(false);
+      type Assoc = { EventType: string; FunctionARN: unknown };
+      const behaviors: { FunctionAssociations?: Assoc[] }[] = [cfg.DefaultCacheBehavior, ...cfg.CacheBehaviors];
+      expect(cfg.CacheBehaviors.length).toBeGreaterThan(0);
+      for (const b of behaviors) {
+        expect(b.FunctionAssociations).toHaveLength(1);
+        expect(b.FunctionAssociations![0]!.EventType).toBe('viewer-request');
+        expect(b.FunctionAssociations![0]!.FunctionARN).toEqual({ 'Fn::GetAtt': [fnId, 'FunctionARN'] });
+      }
+    },
+  );
+
   it('outputs the site URL', () => {
     staging.hasOutput('SiteUrl', {});
   });

@@ -40,3 +40,15 @@ test('API round trip', async ({ request }) => {
     expect((await request.delete(`/api/notes/${note.id}`)).status()).toBe(204);
   }
 });
+
+// Proves the lock is on. Runs only in CI: from the owner's allowlisted IP it would fail.
+test('the site is closed to anonymous visitors', async ({ playwright, baseURL }) => {
+  test.skip(!process.env.CI, 'needs a non-allowlisted IP (CI runner)');
+  const anon = await playwright.request.newContext({ baseURL, extraHTTPHeaders: {} });
+  try {
+    expect((await anon.get('/')).status()).toBe(403);
+    expect((await anon.get('/api/health')).status()).toBe(403);
+  } finally {
+    await anon.dispose();
+  }
+});

@@ -18,4 +18,12 @@ export default tseslint.config(
     files: ['scripts/**/*.mjs'],
     languageOptions: { globals: { console: 'readonly', fetch: 'readonly', process: 'readonly' } },
   },
+  {
+    // CloudFront Functions: the runtime calls the top-level `handler`, and the JS 2.0
+    // runtime does not document optional catch binding, so `catch (e)` stays.
+    files: ['infra/edge/**/*.js'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^handler$', caughtErrors: 'none' }],
+    },
+  },
 );
