@@ -54,6 +54,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: ./.github/actions/base-guardrails
         with:
           base-ref: ${{ github.base_ref }}
@@ -64,6 +65,9 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           settings: .claude/settings.json
+          # Public logs: never echo agent output or tool results.
+          display_report: 'false'
+          show_full_output: 'false'
           prompt: |
             You are the code-review gate for PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
 
@@ -112,6 +116,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: ./.github/actions/base-guardrails
         with:
           base-ref: ${{ github.base_ref }}
@@ -128,6 +133,8 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           settings: .claude/settings.json
+          display_report: 'false'
+          show_full_output: 'false'
           prompt: |
             Read .claude/skills/security-audit/SKILL.md and follow it. This is an explicit
             request for a FULL AUDIT MODE run with these settings:
