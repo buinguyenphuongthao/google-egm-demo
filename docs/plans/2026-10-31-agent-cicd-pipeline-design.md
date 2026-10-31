@@ -184,8 +184,9 @@ never receive them.
 
 ### Known residual risk
 
-A malicious PR could attempt prompt injection against the review agent. Accepted for a
-private repo with trusted contributors; tests and the independent security gate are backstops.
+A PR can rewrite the gates that check it, and a malicious PR could attempt prompt injection
+against the review or audit agent. Both are accepted with mitigations; see "Residual risks"
+in `docs/threat-model.md`.
 
 ## 5. One-time setup (documented in `docs/setup.md`)
 
