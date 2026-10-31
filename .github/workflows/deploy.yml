@@ -3,6 +3,10 @@ name: deploy
 on:
   push:
     branches: [main]
+    # Markdown never ships: it is not in the SPA, Lambda or CDK app. A push that changes
+    # only Markdown leaves the live build as is; workflow_dispatch can still deploy.
+    paths-ignore:
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:

@@ -75,7 +75,9 @@ npm run access -- list   # owner only: IP allowlist and smoke token (needs egm-a
     `needs_validation` items are reported, not blocking.
   - `e2e`: Playwright (Chromium) against local SPA + API + DynamoDB Local.
 - **`deploy.yml`** (push to `main`, serialized): build once -> deploy staging -> smoke
-  staging -> deploy prod -> smoke prod. Staging and prod ship the same artifact.
+  staging -> deploy prod -> smoke prod. Staging and prod ship the same artifact. A push
+  that changes only Markdown (`**/*.md`) does not deploy; run the workflow manually if
+  needed.
 - **`security-weekly.yml`** (cron + manual): `standard` full-repo audit in a read-only
   `audit` job; a separate `report` job (`issues: write`, no agent) opens/updates an issue
   (counts only) on confirmed findings. Never blocks deploys.
