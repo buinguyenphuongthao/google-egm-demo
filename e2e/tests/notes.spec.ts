@@ -37,3 +37,8 @@ test('renders note text literally, never as HTML', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Notes' }).getByText(payload)).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
 });
+
+test('deleting a missing note returns 404', async ({ request }) => {
+  const res = await request.delete(`/api/notes/${crypto.randomUUID()}`);
+  expect(res.status()).toBe(404);
+});
