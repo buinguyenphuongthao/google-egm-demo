@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 // Importing must not run main(): any AWS or gh call would fail or hang here.
@@ -74,7 +75,15 @@ test('run without redact keeps stderr detail, the cause, and the AWS error code'
 function fakeRunner({ failures = {} } = {}) {
   const calls = [];
   const runner = (cmd, args, opts = {}) => {
-    calls.push({ cmd, args, opts });
+    const call = { cmd, args, opts };
+    // The parameter file is deleted after the call, so capture it now.
+    const ref = args[args.indexOf('--cli-input-json') + 1];
+    if (args.includes('--cli-input-json')) {
+      call.paramFile = ref.slice('file://'.length);
+      call.paramMode = statSync(call.paramFile).mode & 0o777;
+      call.input = readFileSync(call.paramFile, 'utf8');
+    }
+    calls.push(call);
     const op = args[1];
     const fail = failures[op]?.shift();
     if (fail) {
@@ -91,13 +100,15 @@ function fakeRunner({ failures = {} } = {}) {
   return { runner, calls };
 }
 
-test('put-key passes the value on stdin, never in argv', () => {
+test('put-key passes the value in a private, deleted file, never in argv', () => {
   const { runner, calls } = fakeRunner();
   createClient(runner).putKey(ARN, 'smoke-token', 'TOKENVALUE', { redact: 'TOKENVALUE' });
   const put = calls.find((c) => c.args[1] === 'put-key');
   assert.ok(put);
   for (const c of calls) assert.ok(!c.args.some((a) => a.includes('TOKENVALUE')), c.args.join(' '));
-  const input = JSON.parse(put.opts.input);
+  const input = JSON.parse(put.input);
+  assert.equal(put.paramMode, 0o600);
+  assert.equal(existsSync(put.paramFile), false);
   assert.equal(input.Value, 'TOKENVALUE');
   assert.equal(input.KvsARN, ARN);
   assert.ok(input.IfMatch);
@@ -110,7 +121,7 @@ test('put-key retries once with a fresh ETag on ConflictException', () => {
   createClient(runner).putKey(ARN, 'ip:203.0.113.7', 'x');
   const puts = calls.filter((c) => c.args[1] === 'put-key');
   assert.equal(puts.length, 2);
-  assert.notEqual(JSON.parse(puts[0].opts.input).IfMatch, JSON.parse(puts[1].opts.input).IfMatch);
+  assert.notEqual(JSON.parse(puts[0].input).IfMatch, JSON.parse(puts[1].input).IfMatch);
 });
 
 test('put-key does not retry other errors', () => {
