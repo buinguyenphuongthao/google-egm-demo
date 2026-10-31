@@ -93,3 +93,4 @@ jobs:
       environment: prod
       artifact: cdk-out-rollback-${{ github.run_id }}
       version: ${{ needs.rollback-build.outputs.sha }}
+      ref: ${{ needs.rollback-build.outputs.sha }}
