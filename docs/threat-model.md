@@ -71,5 +71,8 @@ listed mitigation.
    only in a GitHub environment secret and the KeyValueStore; the edge strips the header
    before the origin; `npm run access` never prints it; smoke failure reports are encrypted
    before upload. Rotate with `npm run access -- rotate-smoke-token <env>`.
-5. **Origin secret visible to account admins.** The resolved `x-origin-verify` value appears
+5. **A prod rollback to a commit without the lock re-opens prod** until a fix ships. Only
+   the first locked deploy can hit this: once its prod smoke passes, `prod-good` moves to a
+   locked commit. The KeyValueStore exists in both versions, so its data survives.
+6. **Origin secret visible to account admins.** The resolved `x-origin-verify` value appears
    in the Lambda and CloudFront configuration. Only the owner has account access.
