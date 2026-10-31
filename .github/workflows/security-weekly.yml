@@ -9,14 +9,20 @@ permissions:
   contents: read
 
 jobs:
+  # The agent job gets no write scopes. It hands only sanitized counts to the report job.
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
       contents: read
-      issues: write
+    outputs:
+      status: ${{ steps.counts.outputs.status }}
+      confirmed: ${{ steps.counts.outputs.confirmed }}
+      by_sev: ${{ steps.counts.outputs.by_sev }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # runner.temp is not available in job-level env, so export AUDIT_DIR here.
       - run: |
           echo "AUDIT_DIR=$RUNNER_TEMP/security-audit" >> "$GITHUB_ENV"
@@ -28,6 +34,9 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           settings: .claude/settings.json
+          # Public logs: never echo agent output or tool results.
+          display_report: 'false'
+          show_full_output: 'false'
           prompt: |
             Read .claude/skills/security-audit/SKILL.md and follow it. This is an explicit
             request for a FULL AUDIT MODE run with these settings:
@@ -46,22 +55,76 @@ jobs:
             Your final message must be exactly "Audit finished." with no finding details.
           claude_args: >-
             --allowedTools "Read,Grep,Glob,Write,Edit,Agent,Task,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git status:*),Bash(git show:*),Bash(mkdir:*),Bash(node .claude/skills/security-audit/validate-findings.cjs:*),Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
-      - name: Summarize and file issue
+      - name: Validate and count
+        id: counts
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          findings="$AUDIT_DIR/run-1/findings.json"
-          meta="$AUDIT_DIR/run-1/run-metadata.json"
-          [ -f "$findings" ] && [ -f "$meta" ] || { echo "::error::Audit produced no output"; exit 1; }
+          run="$AUDIT_DIR/run-1"
+          skill=.claude/skills/security-audit
+          fail() {
+            echo "status=unknown" >> "$GITHUB_OUTPUT"
+            echo "::error::$1"
+            exit 1
+          }
+          for f in run-metadata.json findings.json coverage-ledger.json; do
+            [ -f "$run/$f" ] || fail "Audit produced no $f"
+          done
           # Validator errors echo finding field values; keep them out of the public log.
-          node .claude/skills/security-audit/validate-findings.cjs "$findings" > /dev/null 2>&1 \
-            || { echo "::error::findings.json failed schema validation"; exit 1; }
-          status=$(jq -r .run_status "$meta")
-          confirmed=$(jq '[.[] | select(.verdict=="confirmed")] | length' "$findings")
-          by_sev=$(jq -r '[.[] | select(.verdict=="confirmed") | .severity.overall_severity] | group_by(.) | map("\(.[0]): \(length)") | join(", ")' "$findings")
+          node "$skill/validate-findings.cjs" "$run/findings.json" > /dev/null 2>&1 \
+            || fail "findings.json failed schema validation"
+          node "$skill/validate-coverage-ledger.cjs" "$run/coverage-ledger.json" > /dev/null 2>&1 \
+            || fail "coverage-ledger.json failed validation"
+          # Agent-written strings are untrusted: emit only allowlisted values and integers.
+          raw=$(jq -r '.run_status // ""' "$run/run-metadata.json" 2> /dev/null) || fail "run-metadata.json is not valid JSON"
+          case "$raw" in
+            complete | incomplete | in_progress) status="$raw" ;;
+            *) status="unknown" ;;
+          esac
+          confirmed=$(jq '[.[] | select(.verdict=="confirmed")] | length' "$run/findings.json")
+          by_sev=$(jq -r '
+            [.[] | select(.verdict=="confirmed") | .severity.overall_severity] as $s
+            | ["critical","high","medium","low","informational"]
+            | map(. as $k | ($s | map(select(. == $k)) | length) as $n | select($n > 0) | "\($k): \($n)")
+            | join(", ")' "$run/findings.json")
+          {
+            echo "status=$status"
+            echo "confirmed=$confirmed"
+            echo "by_sev=$by_sev"
+          } >> "$GITHUB_OUTPUT"
+      - if: always()
+        uses: ./.github/actions/encrypt-upload
+        with:
+          name: security-audit-report
+          paths: |
+            ${{ runner.temp }}/security-audit
+            .claude/audit.jsonl
+
+  # Runs no agent and no repo code: files the issue from the audit job's outputs only.
+  report:
+    needs: audit
+    if: always() && needs.audit.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - name: Summarize and file issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATUS: ${{ needs.audit.outputs.status }}
+          CONFIRMED: ${{ needs.audit.outputs.confirmed }}
+          BY_SEV: ${{ needs.audit.outputs.by_sev }}
+        run: |
+          set -euo pipefail
+          case "$STATUS" in
+            complete | incomplete | in_progress) status="$STATUS" ;;
+            *) status="unknown" ;;
+          esac
+          [[ "$CONFIRMED" =~ ^[0-9]+$ ]] && confirmed="$CONFIRMED" || confirmed=0
+          [[ "$BY_SEV" =~ ^[a-z0-9:,\ ]*$ ]] && by_sev="$BY_SEV" || by_sev=""
           echo "Weekly audit: status=$status confirmed=$confirmed ($by_sev)" >> "$GITHUB_STEP_SUMMARY"
           if [ "$confirmed" -gt 0 ]; then
             gh label create security-audit --color B60205 --force > /dev/null
@@ -77,10 +140,3 @@ jobs:
             fi
           fi
           [ "$status" = "complete" ] || { echo "::error::Audit run_status is $status"; exit 1; }
-      - if: always()
-        uses: ./.github/actions/encrypt-upload
-        with:
-          name: security-audit-report
-          paths: |
-            ${{ runner.temp }}/security-audit
-            .claude/audit.jsonl
