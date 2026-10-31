@@ -12,27 +12,45 @@
       "Bash(cdk destroy:*)",
       "Read(./.env)",
       "Read(./.env.*)",
-      "Read(~/.config/egm/**)"
+      "Read(~/.config/egm/**)",
+      "Read(./.git/**)",
+      "Read(//proc/**)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.mjs\"" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.mjs\""
+          }
+        ]
       },
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
-          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-files.mjs\"" },
-          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/scan-secrets.mjs\"" }
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-files.mjs\""
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/scan-secrets.mjs\""
+          }
         ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-log.mjs\"" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-log.mjs\""
+          }
+        ]
       }
     ]
   }
