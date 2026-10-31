@@ -39,10 +39,14 @@ export function rankAt(ids: string[], index: number, rankOf: (id: string) => str
 
 export const rankAfter = (last: string | undefined) => generateKeyBetween(last ?? null, null);
 
-const DAY_MS = 24 * 3600 * 1000;
+const HOUR_MS = 3600 * 1000;
 
+const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+
+/** "Expires in N days", or in hours on the last day so the final countdown is visible. */
 export function expiresIn(expiresAt: number, now = Date.now()): string {
-  const days = Math.max(0, Math.ceil((expiresAt * 1000 - now) / DAY_MS));
-  if (days === 0) return 'Expires today';
-  return days === 1 ? 'Expires in 1 day' : `Expires in ${days} days`;
+  const hours = Math.floor(Math.max(0, expiresAt * 1000 - now) / HOUR_MS);
+  if (hours === 0) return 'Expires within the hour';
+  if (hours < 24) return `Expires in ${plural(hours, 'hour')}`;
+  return `Expires in ${plural(Math.floor(hours / 24), 'day')}`;
 }
