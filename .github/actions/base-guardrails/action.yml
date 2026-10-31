@@ -41,6 +41,6 @@ runs:
         fi
 
         # Agents also load nested CLAUDE.md files and CLAUDE.local.md; only the restored
-        # root CLAUDE.md may instruct them.
+        # root CLAUDE.md may instruct them. (GNU find rejects -delete with -prune, so use -exec rm.)
         find . -path ./.git -prune -o -name node_modules -prune -o \
-          \( -name CLAUDE.md ! -path ./CLAUDE.md -o -name CLAUDE.local.md \) -type f -print -delete
+          \( -name CLAUDE.md ! -path ./CLAUDE.md -o -name CLAUDE.local.md \) -type f -print -exec rm -f -- {} +
