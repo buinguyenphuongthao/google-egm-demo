@@ -41,6 +41,34 @@ describe('AppStack', () => {
     });
   });
 
+  it.each([['staging', staging], ['prod', prod]] as const)(
+    '%s adds a Board table keyed by pk/sk with TTL and the Notes removal and PITR settings',
+    (s, t) => {
+      const tables = t.findResources('AWS::DynamoDB::Table');
+      expect(Object.keys(tables)).toHaveLength(2);
+      const boardIds = Object.keys(tables).filter((id) => id.startsWith('Board'));
+      // Pinned: a different logical id would replace the deployed table and drop its data.
+      expect(boardIds).toEqual(['Board47D7A2D0']);
+      const board = tables[boardIds[0]!]!;
+      expect(board.Properties).toMatchObject({
+        BillingMode: 'PAY_PER_REQUEST',
+        KeySchema: [
+          { AttributeName: 'pk', KeyType: 'HASH' },
+          { AttributeName: 'sk', KeyType: 'RANGE' },
+        ],
+        TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true },
+        PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: s === 'prod' },
+      });
+      const notes = Object.entries(tables).find(([id]) => id.startsWith('Notes'))![1];
+      expect(board.DeletionPolicy).toBe(notes.DeletionPolicy);
+      // The Notes table is unchanged: same key schema as before the board.
+      expect(notes.Properties.KeySchema).toEqual([{ AttributeName: 'id', KeyType: 'HASH' }]);
+      t.hasResourceProperties('AWS::Lambda::Function', {
+        Environment: { Variables: Match.objectLike({ BOARD_TABLE_NAME: { Ref: boardIds[0] } }) },
+      });
+    },
+  );
+
   it('injects the version into the API Lambda', () => {
     staging.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'nodejs22.x',
@@ -48,7 +76,7 @@ describe('AppStack', () => {
     });
   });
 
-  it('scopes the API Lambda role to its own table', () => {
+  it('scopes the API Lambda role to the Notes and Board tables', () => {
     const policies = Object.values(staging.findResources('AWS::IAM::Policy')).filter((p) =>
       JSON.stringify(p.Properties.Roles).includes('ApiFunctionServiceRole'),
     );
@@ -58,7 +86,7 @@ describe('AppStack', () => {
         const text = JSON.stringify(resource);
         if (text.includes('AWS::NoValue')) continue;
         expect(resource).not.toBe('*');
-        expect(text).toMatch(/Notes[0-9A-F]{8}/);
+        expect(text).toMatch(/(Notes|Board)[0-9A-F]{8}/);
       }
     }
   });
