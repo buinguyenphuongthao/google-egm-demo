@@ -1,3 +1,11 @@
+import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  ScanCommand,
+} from '@aws-sdk/lib-dynamodb';
 import type { Note } from './notes';
 
 export interface NotesRepo {
@@ -6,4 +14,45 @@ export interface NotesRepo {
   /** Returns false when no note has this id. */
   delete(id: string): Promise<boolean>;
   ping(): Promise<boolean>;
+}
+
+export function createDynamoRepo(tableName: string, endpoint?: string): NotesRepo {
+  const doc = DynamoDBDocumentClient.from(new DynamoDBClient(endpoint ? { endpoint } : {}));
+  return {
+    async list() {
+      // Demo scale: a full scan is fine. API Gateway throttling bounds the cost.
+      const notes: Note[] = [];
+      let startKey: Record<string, unknown> | undefined;
+      do {
+        const page = await doc.send(new ScanCommand({ TableName: tableName, ExclusiveStartKey: startKey }));
+        notes.push(...((page.Items ?? []) as Note[]));
+        startKey = page.LastEvaluatedKey;
+      } while (startKey);
+      return notes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+    async create(note) {
+      await doc.send(
+        new PutCommand({ TableName: tableName, Item: note, ConditionExpression: 'attribute_not_exists(id)' }),
+      );
+    },
+    async delete(id) {
+      try {
+        await doc.send(
+          new DeleteCommand({ TableName: tableName, Key: { id }, ConditionExpression: 'attribute_exists(id)' }),
+        );
+        return true;
+      } catch (err) {
+        if (err instanceof ConditionalCheckFailedException) return false;
+        throw err;
+      }
+    },
+    async ping() {
+      try {
+        await doc.send(new GetCommand({ TableName: tableName, Key: { id: '__health__' } }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
 }
