@@ -28,9 +28,15 @@ function fakeRepo(initial: Note[] = [], healthy = true): NotesRepo & { notes: No
   };
 }
 
-function event(method: string, path: string, body?: string): APIGatewayProxyEventV2 {
+function event(
+  method: string,
+  path: string,
+  body?: string,
+  headers: Record<string, string> = {},
+): APIGatewayProxyEventV2 {
   return {
     rawPath: path,
+    headers,
     body,
     isBase64Encoded: false,
     requestContext: { http: { method } },
@@ -111,5 +117,27 @@ describe('notes routes', () => {
     const res = await handlerFor(repo)(event('GET', '/api/notes'));
     expect(res.statusCode).toBe(500);
     expect(res.body).not.toContain('secret internals');
+  });
+});
+
+describe('origin verification', () => {
+  const secret = 's3cret-value';
+  const h = createHandler({ repo: fakeRepo(), version: 'v1', originVerify: secret });
+
+  it('rejects requests without the CloudFront header', async () => {
+    expect((await h(event('GET', '/api/health'))).statusCode).toBe(403);
+  });
+
+  it('rejects a wrong header', async () => {
+    expect((await h(event('GET', '/api/health', undefined, { 'x-origin-verify': 'nope' }))).statusCode).toBe(403);
+  });
+
+  it('accepts the right header', async () => {
+    expect((await h(event('GET', '/api/health', undefined, { 'x-origin-verify': secret }))).statusCode).toBe(200);
+  });
+
+  it('skips the check when no secret is configured (local dev, e2e)', async () => {
+    const local = createHandler({ repo: fakeRepo(), version: 'v1' });
+    expect((await local(event('GET', '/api/health'))).statusCode).toBe(200);
   });
 });
