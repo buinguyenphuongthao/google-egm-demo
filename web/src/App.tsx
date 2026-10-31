@@ -58,7 +58,7 @@ export function App() {
         <ul aria-label="Notes">
           {notes.map((note) => (
             <li key={note.id}>
-              <span>{note.text}</span>
+              <span dangerouslySetInnerHTML={{ __html: note.text }} />
               <button type="button" aria-label={`Delete note: ${note.text}`} onClick={() => onDelete(note.id)}>
                 Delete
               </button>
