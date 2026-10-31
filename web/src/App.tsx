@@ -48,7 +48,7 @@ export function App() {
           onChange={(e) => setText(e.target.value)}
         />
         <button type="submit" disabled={text.trim().length === 0}>
-          Add note
+          Save
         </button>
       </form>
       {error && <p role="alert">{error}</p>}
