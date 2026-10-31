@@ -3,6 +3,9 @@
 // Run by the owner with their AWS profile. Never prints the smoke token.
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ENVS = ['staging', 'prod'];
@@ -59,9 +62,18 @@ export function createClient(runner = run) {
       throw new Error(`aws ${args[0]} ${args[1]} returned output that is not JSON`);
     }
   }
-  // Request parameters go through stdin so values (the smoke token) never appear in argv.
-  const awsJson = (op, params, opts) =>
-    aws(['cloudfront-keyvaluestore', op, '--cli-input-json', 'file:///dev/stdin'], { ...opts, input: JSON.stringify(params) });
+  // Request parameters go through a private temp file so values (the smoke token) never
+  // appear in argv. Not stdin: the AWS CLI cannot open /dev/stdin when it is a pipe on macOS.
+  function awsJson(op, params, opts) {
+    const dir = mkdtempSync(join(tmpdir(), 'egm-access-'));
+    const file = join(dir, 'params.json');
+    try {
+      writeFileSync(file, JSON.stringify(params), { mode: 0o600 });
+      return aws(['cloudfront-keyvaluestore', op, '--cli-input-json', `file://${file}`], opts);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
   const etag = (arn) => aws(['cloudfront-keyvaluestore', 'describe-key-value-store', '--kvs-arn', arn]).ETag;
   // Writes need the store's current ETag; another writer may change it, so retry once.
   function withEtag(op, arn, params, opts) {
