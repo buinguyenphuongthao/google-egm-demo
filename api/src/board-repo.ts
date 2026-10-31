@@ -33,6 +33,8 @@ export interface BoardRepo {
   /** Returns false when the item no longer exists, so a concurrent delete is not undone. */
   updateItem(item: BoardItem): Promise<boolean>;
   deleteItems(items: BoardItem[]): Promise<void>;
+  /** True when the table answers a read. */
+  ping(): Promise<boolean>;
 }
 
 const PROJECTS = 'PROJECTS';
@@ -159,6 +161,14 @@ export function createDynamoBoardRepo(tableName: string, endpoint?: string): Boa
           requests = (UnprocessedItems?.[tableName] ?? []) as typeof requests;
           if (requests.length > 0) await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
         }
+      }
+    },
+    async ping() {
+      try {
+        await doc.send(new GetCommand({ TableName: tableName, Key: { pk: PROJECTS, sk: '__health__' } }));
+        return true;
+      } catch {
+        return false;
       }
     },
   };

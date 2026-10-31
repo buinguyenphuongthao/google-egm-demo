@@ -1,6 +1,6 @@
 # google-egm-demo
 
-Demo of an agent-driven CI/CD pipeline. A small Notes app (SPA + API + DynamoDB on AWS)
+Demo of an agent-driven CI/CD pipeline. A small Kanban board app (SPA + API + DynamoDB on AWS)
 exists mainly to give the pipeline something real to gate. Every deploy must pass four gates:
 AI code review, AI security audit, Playwright E2E tests, and post-deploy smoke tests.
 
@@ -14,10 +14,11 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
                        +- /api/* -> API Gateway HTTP API -> Lambda -> DynamoDB (Notes, Board)
 ```
 
-- The app is moving from a notes list to a Kanban board
-  (`docs/plans/2026-10-31-kanban-board-design.md`, issue #18). The board API
-  (`/api/projects/...`) and its `Board` table (`pk`/`sk`, one partition per project) exist;
-  the SPA still shows notes until rollout step 2.
+- The app is a Kanban board (`docs/plans/2026-10-31-kanban-board-design.md`, issue #18):
+  the SPA (Tailwind v4, shadcn/ui components copied into `web/src/components/ui`, drag and
+  drop with `@dnd-kit`) calls the board API (`/api/projects/...`) and its `Board` table
+  (`pk`/`sk`, one partition per project). The old `/api/notes` routes and `Notes` table
+  stay until cleanup (rollout step 4, issue #17).
 
 - One CloudFront domain serves both SPA and API: no CORS, one URL for tests.
 - Owner-only: a CloudFront Function (`infra/edge/owner-only.js`, viewer request, both
@@ -31,7 +32,8 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
   restricted to this repo's `main` branch and the `staging`/`prod` environments).
   It is deployed manually, never by CI.
 - `/api/health` returns `{ status, version, dbOk }`; `version` is the git SHA injected
-  at deploy time. Smoke tests rely on this to prove the right build is live.
+  at deploy time, and `dbOk` means the `Board` table answered a read. Smoke tests rely on
+  this to prove the right build is live.
 
 ## Repo layout (npm workspaces)
 
@@ -117,8 +119,10 @@ This repo is public: logs, job summaries, artifacts, and issues are world-readab
 - Smoke tests send `SMOKE_TOKEN` (GitHub environment secret) and include a test that an
   anonymous request gets 403 (CI only: it would fail from the owner's allowlisted IP).
   Their failure reports are encrypted before upload because traces record request headers.
-- Smoke tests must be safe against prod: they only create data tagged `smoke-<sha>` with a
-  short (1 hour) DynamoDB TTL, and clean up after themselves.
+- Smoke tests must be safe against prod: they only create a project named `smoke-<sha>`
+  (every item in it gets a 1 hour DynamoDB TTL, and it does not count toward the project
+  cap), and delete it afterwards.
+- New npm packages are pinned to exact versions and listed in the PR that adds them.
 - E2E tests own the full UI flows; smoke tests stay small (under ~1 minute) and read-mostly.
 - DynamoDB changes are additive only (new attributes/indexes; no renames or removals in the
   same release). Rollback redeploys code, not data, so the previous version must still work.

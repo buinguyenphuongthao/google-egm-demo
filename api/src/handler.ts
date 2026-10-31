@@ -25,16 +25,8 @@ function sameSecret(given: string | undefined, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function notesRoutes(repo: NotesRepo, version: string, now: () => Date, newId: () => string): Route[] {
+function notesRoutes(repo: NotesRepo, now: () => Date, newId: () => string): Route[] {
   return [
-    {
-      method: 'GET',
-      pattern: /^\/api\/health$/,
-      async run() {
-        const dbOk = await repo.ping();
-        return json(dbOk ? 200 : 503, { status: dbOk ? 'ok' : 'degraded', version, dbOk });
-      },
-    },
     {
       method: 'GET',
       pattern: /^\/api\/notes$/,
@@ -75,8 +67,17 @@ export function createHandler({
   originVerify,
 }: HandlerDeps) {
   if (originVerify === '') throw new Error('originVerify must be non-empty');
+  const health: Route = {
+    method: 'GET',
+    pattern: /^\/api\/health$/,
+    async run() {
+      const dbOk = await boardRepo.ping();
+      return json(dbOk ? 200 : 503, { status: dbOk ? 'ok' : 'degraded', version, dbOk });
+    },
+  };
   const routes = [
-    ...notesRoutes(repo, version, now, newId),
+    health,
+    ...notesRoutes(repo, now, newId),
     ...boardRoutes({ repo: boardRepo, now, newId }),
   ];
   return async (event: APIGatewayProxyEventV2): Promise<Result> => {
