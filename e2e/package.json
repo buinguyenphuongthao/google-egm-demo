@@ -1,1 +1,13 @@
-{ "name": "@egm/e2e", "private": true, "type": "module" }
+{
+  "name": "@egm/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.6"
+  }
+}
