@@ -2,14 +2,9 @@ import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { BoardRepo } from './board-repo';
 import { boardRoutes } from './board-routes';
-import { json, readJson, type Result, type Route } from './http';
-import { buildNote, parseNoteInput } from './notes';
-import type { NotesRepo } from './repo';
-
-const MAX_BODY_BYTES = 4096;
+import { json, type Result, type Route } from './http';
 
 export interface HandlerDeps {
-  repo: NotesRepo;
   boardRepo: BoardRepo;
   version: string;
   now?: () => Date;
@@ -25,41 +20,7 @@ function sameSecret(given: string | undefined, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function notesRoutes(repo: NotesRepo, now: () => Date, newId: () => string): Route[] {
-  return [
-    {
-      method: 'GET',
-      pattern: /^\/api\/notes$/,
-      async run() {
-        return json(200, { notes: await repo.list() });
-      },
-    },
-    {
-      method: 'POST',
-      pattern: /^\/api\/notes$/,
-      async run(_params, event) {
-        const body = readJson(event, MAX_BODY_BYTES);
-        if (!body.ok) return body.result;
-        const parsed = parseNoteInput(body.value);
-        if (!parsed.ok) return json(400, { error: parsed.error });
-        const note = buildNote(parsed.value, now(), newId());
-        await repo.create(note);
-        return json(201, { note });
-      },
-    },
-    {
-      method: 'DELETE',
-      pattern: /^\/api\/notes\/([0-9a-f-]{36})$/,
-      async run([id]) {
-        const deleted = await repo.delete(id!);
-        return deleted ? { statusCode: 204 } : json(404, { error: 'note not found' });
-      },
-    },
-  ];
-}
-
 export function createHandler({
-  repo,
   boardRepo,
   version,
   now = () => new Date(),
@@ -75,11 +36,7 @@ export function createHandler({
       return json(dbOk ? 200 : 503, { status: dbOk ? 'ok' : 'degraded', version, dbOk });
     },
   };
-  const routes = [
-    health,
-    ...notesRoutes(repo, now, newId),
-    ...boardRoutes({ repo: boardRepo, now, newId }),
-  ];
+  const routes = [health, ...boardRoutes({ repo: boardRepo, now, newId })];
   return async (event: APIGatewayProxyEventV2): Promise<Result> => {
     if (originVerify !== undefined && !sameSecret(event.headers?.['x-origin-verify'], originVerify)) {
       return json(403, { error: 'forbidden' });

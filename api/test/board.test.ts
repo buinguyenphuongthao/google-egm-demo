@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DONE_TTL_SECONDS,
+  SMOKE_TTL_SECONDS,
   buildProject,
   byRank,
   cardExpiry,
@@ -13,7 +14,6 @@ import {
   parseProjectInput,
   type Column,
 } from '../src/board';
-import { SMOKE_TTL_SECONDS } from '../src/notes';
 
 const NOW = new Date('2026-11-01T00:00:00Z');
 const EPOCH = NOW.getTime() / 1000;
