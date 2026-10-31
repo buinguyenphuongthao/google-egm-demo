@@ -28,7 +28,7 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 | Path | Contents |
 |---|---|
 | `web/` | Vite + React + TypeScript SPA |
-| `api/` | Lambda handlers (TypeScript, Node 20), bundled by CDK via esbuild |
+| `api/` | Lambda handlers (TypeScript, Node 22), bundled by CDK via esbuild |
 | `infra/` | CDK app (TypeScript) |
 | `e2e/` | Playwright specs run on PRs against a local build + DynamoDB Local |
 | `smoke/` | Playwright smoke specs run after each deploy against the live URL |
@@ -49,7 +49,17 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 - **`deploy.yml`** (push to `main`, serialized): build once -> deploy staging -> smoke
   staging -> deploy prod -> smoke prod. Staging and prod ship the same artifact.
 - **`security-weekly.yml`** (cron + manual): `standard` full-repo audit; opens/updates an
-  issue on confirmed findings. Never blocks deploys.
+  issue (counts only) on confirmed findings. Never blocks deploys.
+
+## Public repo rules
+
+This repo is public: logs, job summaries, artifacts, and issues are world-readable.
+
+- Never use `pull_request_target` in any workflow. It exposes secrets to fork PR code.
+- Never print security finding details (titles, traces, file paths) to logs, summaries,
+  issues, or PR comments. Publish counts only. Full audit output is encrypted with age to
+  `.github/audit-recipient.txt` before upload.
+- Never read, print, or commit the age private key (`~/.config/egm/audit-key.txt`).
 
 ## Conventions
 
@@ -94,4 +104,5 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 ## Git
 
 - `main` is protected; all changes go through PRs that pass every gate.
-- Remote: `github.com/buinguyenphuongthao/google-egm-demo` (private).
+- Remote: `github.com/buinguyenphuongthao/google-egm-demo` (public). Workflow runs from
+  external contributors require maintainer approval.
