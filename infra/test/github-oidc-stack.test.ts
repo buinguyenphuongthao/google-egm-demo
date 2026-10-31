@@ -33,7 +33,8 @@ describe('GithubOidcStack', () => {
       PolicyDocument: {
         Statement: [
           Match.objectLike({
-            Action: 'sts:AssumeRole',
+            // The CDK CLI tags sessions when it switches to bootstrap roles.
+            Action: ['sts:AssumeRole', 'sts:TagSession'],
             Resource: Match.objectLike({
               'Fn::Join': Match.arrayWith([Match.arrayWith([Match.stringLikeRegexp('role/cdk-hnb659fds-\\*')])]),
             }),

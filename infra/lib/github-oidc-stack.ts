@@ -43,7 +43,7 @@ export class GithubOidcStack extends Stack {
     // All real permissions come from the CDK bootstrap roles that `cdk deploy` assumes.
     role.addToPolicy(
       new iam.PolicyStatement({
-        actions: ['sts:AssumeRole'],
+        actions: ['sts:AssumeRole', 'sts:TagSession'],
         resources: [`arn:${this.partition}:iam::${this.account}:role/cdk-hnb659fds-*`],
       }),
     );
