@@ -36,6 +36,17 @@ export class AppStack extends Stack {
       removalPolicy,
     });
 
+    // Kanban board: one partition per project (pk), item type and id in sk. A new table
+    // rather than a sort key on Notes, which would replace that table.
+    const boardTable = new dynamodb.Table(this, 'Board', {
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: isProd },
+      removalPolicy,
+    });
+
     // CloudFront sends this value to the API; the Lambda rejects requests without it,
     // which closes the public execute-api URL. Resolved by CloudFormation at deploy time.
     // Never rotate in place: only the Lambda re-resolves it each deploy, so the Distribution would
@@ -55,12 +66,14 @@ export class AppStack extends Stack {
       timeout: Duration.seconds(10),
       environment: {
         TABLE_NAME: table.tableName,
+        BOARD_TABLE_NAME: boardTable.tableName,
         VERSION: props.version,
         ORIGIN_VERIFY: originVerify,
       },
       logGroup: new logs.LogGroup(this, 'ApiLogs', { retention: logs.RetentionDays.TWO_WEEKS, removalPolicy }),
     });
     table.grantReadWriteData(fn);
+    boardTable.grantReadWriteData(fn);
 
     const api = new apigw.HttpApi(this, 'HttpApi', {
       defaultIntegration: new HttpLambdaIntegration('ApiIntegration', fn),

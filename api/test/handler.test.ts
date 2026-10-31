@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createHandler } from '../src/handler';
 import { NOTE_TTL_SECONDS, type Note } from '../src/notes';
 import type { NotesRepo } from '../src/repo';
+import { memoryBoardRepo } from './memory-board-repo';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 
@@ -46,6 +47,7 @@ function event(
 function handlerFor(repo: NotesRepo) {
   return createHandler({
     repo,
+    boardRepo: memoryBoardRepo(),
     version: 'abc123',
     now: () => new Date('2026-10-31T00:00:00Z'),
     newId: () => ID,
@@ -122,7 +124,7 @@ describe('notes routes', () => {
 
 describe('origin verification', () => {
   const secret = 's3cret-value';
-  const h = createHandler({ repo: fakeRepo(), version: 'v1', originVerify: secret });
+  const h = createHandler({ repo: fakeRepo(), boardRepo: memoryBoardRepo(), version: 'v1', originVerify: secret });
 
   it('rejects requests without the CloudFront header', async () => {
     expect((await h(event('GET', '/api/health'))).statusCode).toBe(403);
@@ -142,12 +144,12 @@ describe('origin verification', () => {
   });
 
   it('skips the check when no secret is configured (local dev, e2e)', async () => {
-    const local = createHandler({ repo: fakeRepo(), version: 'v1' });
+    const local = createHandler({ repo: fakeRepo(), boardRepo: memoryBoardRepo(), version: 'v1' });
     expect((await local(event('GET', '/api/health'))).statusCode).toBe(200);
   });
 
   it('refuses an empty secret as misconfiguration', () => {
-    expect(() => createHandler({ repo: fakeRepo(), version: 'v1', originVerify: '' })).toThrow(
+    expect(() => createHandler({ repo: fakeRepo(), boardRepo: memoryBoardRepo(), version: 'v1', originVerify: '' })).toThrow(
       'originVerify must be non-empty',
     );
   });

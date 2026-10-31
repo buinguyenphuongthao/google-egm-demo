@@ -11,8 +11,13 @@ AI code review, AI security audit, Playwright E2E tests, and post-deploy smoke t
 
 ```
 Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
-                       +- /api/* -> API Gateway HTTP API -> Lambda -> DynamoDB
+                       +- /api/* -> API Gateway HTTP API -> Lambda -> DynamoDB (Notes, Board)
 ```
+
+- The app is moving from a notes list to a Kanban board
+  (`docs/plans/2026-10-31-kanban-board-design.md`, issue #18). The board API
+  (`/api/projects/...`) and its `Board` table (`pk`/`sk`, one partition per project) exist;
+  the SPA still shows notes until rollout step 2.
 
 - One CloudFront domain serves both SPA and API: no CORS, one URL for tests.
 - Owner-only: a CloudFront Function (`infra/edge/owner-only.js`, viewer request, both
@@ -99,12 +104,16 @@ This repo is public: logs, job summaries, artifacts, and issues are world-readab
 - TypeScript everywhere, `strict` mode on.
 - All AWS infrastructure goes through CDK in `infra/`. No click-ops, no ad hoc CLI changes.
 - AWS resource names and descriptions use hyphens, never em dashes.
-- Least privilege: the Lambda role gets access to its own table only; the deploy role is
-  scoped to this repo via OIDC. No long-lived AWS keys anywhere.
+- Least privilege: the Lambda role gets access to the `Notes` and `Board` tables only; the
+  deploy role is scoped to this repo via OIDC. No long-lived AWS keys anywhere.
 - Secrets live in GitHub Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`). Never commit `.env`
   files, tokens, or AWS account IDs in plain text where avoidable.
 - Every note expires after 7 days (DynamoDB TTL `expiresAt`), and `GET /api/notes`
   returns at most 1000 notes (`MAX_LIST`), so tests must not assume a note is listed.
+- Board data does not expire, except cards in a project's done column (7 days after
+  entering it) and everything in a smoke project (named `smoke-` at creation; 1 hour).
+  The server sets `expiresAt`; the board API treats expired items as absent. Soft caps
+  bound growth (`CAPS` in `api/src/board.ts`).
 - Smoke tests send `SMOKE_TOKEN` (GitHub environment secret) and include a test that an
   anonymous request gets 403 (CI only: it would fail from the owner's allowlisted IP).
   Their failure reports are encrypted before upload because traces record request headers.
