@@ -138,6 +138,7 @@ jobs:
             - Scope: scoped run over the diff `git diff origin/${{ github.base_ref }}...HEAD`.
               Seed ledger units only for surfaces this diff touches; everything else is out_of_scope.
             - Output directory: ${{ runner.temp }}/security-audit/run-1 (exists, outside the target).
+            - Source ref: record the full 40-character `git rev-parse HEAD` in source_ref.
             - Intended behavior and trust boundaries: docs/threat-model.md. Behavior listed as
               intended there is not a finding.
             - Execution: this runner has no OS-enforced sandbox. Do not execute target code,
@@ -154,7 +155,8 @@ jobs:
             --allowedTools "Read,Grep,Glob,Write,Edit,Agent,Task,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git status:*),Bash(git show:*),Bash(mkdir:*),Bash(node .claude/skills/security-audit/validate-findings.cjs:*),Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
       - name: Enforce security verdict
         if: always()
-        run: .github/scripts/security-gate.sh "$AUDIT_DIR/run-1" .claude/skills/security-audit
+        # HEAD is the checked-out merge commit, the same HEAD the audit diffed against.
+        run: .github/scripts/security-gate.sh "$AUDIT_DIR/run-1" .claude/skills/security-audit quick "$(git rev-parse HEAD)"
       - if: always()
         uses: ./.github/actions/encrypt-upload
         with:
