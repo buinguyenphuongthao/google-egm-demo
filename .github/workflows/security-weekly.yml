@@ -48,7 +48,8 @@ jobs:
             - Output directory: ${{ runner.temp }}/security-audit/run-1 (exists, outside the target).
             - Intended behavior and trust boundaries: docs/threat-model.md.
             - Execution: no OS-enforced sandbox. Source inspection only; do not execute target code.
-            - Budget: at most 80 agent invocations.
+            - Do all phases yourself in this session. Subagents and scheduled wake-ups are
+              unavailable: background work would outlive this run and its results would be lost.
             - Run validators exactly as `node .claude/skills/security-audit/<validator>.cjs <file>`
               (relative path from the repo root; this is the only allowed form besides the
               absolute skill-directory path).
@@ -63,7 +64,8 @@ jobs:
             output directory and both validators pass.
             Your final message must be exactly "Audit finished." with no finding details.
           claude_args: >-
-            --allowedTools "Read,Grep,Glob,Write,Edit,Agent,Task,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git status:*),Bash(git show:*),Bash(mkdir:*),Bash(node .claude/skills/security-audit/validate-findings.cjs:*),Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-findings.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
+            --allowedTools "Read,Grep,Glob,Write,Edit,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git status:*),Bash(git show:*),Bash(mkdir:*),Bash(node .claude/skills/security-audit/validate-findings.cjs:*),Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-findings.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
+            --disallowedTools "Agent,Task,ScheduleWakeup"
       - name: Validate and count
         id: counts
         if: always()
