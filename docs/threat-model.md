@@ -2,24 +2,29 @@
 
 ## What the app is
 
-A public, anonymous notes board. **By design**, anyone on the internet may list, create, and
-delete any note. There are no user accounts. Notes must not contain personal data; the UI
-does not ask for any.
+An owner-only notes board. Only the owner's allowlisted IPv4 addresses, and CI smoke tests
+carrying a secret token, can reach staging or prod; everyone else gets 403 at the edge.
+Within that boundary there are no user accounts: anyone admitted may list, create, and
+delete any note. Notes must not contain personal data; the UI does not ask for any.
 
 ## Intended behavior (not findings)
 
-- Unauthenticated list/create/delete of notes.
+- No per-user authentication: an admitted request may list/create/delete any note.
 - Notes expire after 7 days (DynamoDB TTL; smoke-test notes after 1 hour). TTL deletion is
   eventual, so an expired note may still be listed for a while.
 - List returns at most 1000 notes, newest first among those scanned. Past that cap a note
   may exist but not be listed.
-- `/api/health` publicly reveals the deployed git SHA (the repo is public anyway).
-- The API is reachable both via CloudFront `/api/*` and the raw execute-api URL.
+- `/api/health` reveals the deployed git SHA to admitted callers (the repo is public anyway).
+- The raw execute-api URL exists but returns 403: the Lambda accepts only requests carrying
+  CloudFront's `x-origin-verify` header.
+- Only IPv4 is allowlisted; IPv6 is disabled on both distributions.
 
 ## Trust boundaries that matter
 
 | Boundary | Expectation |
 |---|---|
+| Internet -> CloudFront | The `owner-only` CloudFront Function admits only `ip:<addr>` keys or a matching `x-egm-smoke-token` from the environment's KeyValueStore, and fails closed. Any fail-open path is a finding. |
+| CloudFront -> API origin | The Lambda rejects requests without the `x-origin-verify` secret (Secrets Manager, resolved at deploy). |
 | Browser -> API | All input untrusted. Body <= 4 KB, text <= 500 chars, tag `[a-z0-9-]{1,40}`. |
 | API -> DynamoDB | Lambda role limited to its own table. No other AWS access. |
 | Note text -> other viewers' browsers | Rendered as text only. Any HTML/script execution is a vulnerability (stored XSS). |
@@ -60,3 +65,11 @@ listed mitigation.
      config or process environments.
    - Public output is counts only; full audit output is encrypted. The review verdict is a
      schema-constrained count, and only critical findings fail the check.
+3. **IP allowlisting admits everyone behind the owner's IP** (shared office Wi-Fi, carrier
+   NAT). Accepted for a demo; the owner removes stale IPs with `npm run access -- remove`.
+4. **Smoke token leak.** Anyone with the token bypasses the IP check. Mitigations: it lives
+   only in a GitHub environment secret and the KeyValueStore; the edge strips the header
+   before the origin; `npm run access` never prints it; smoke failure reports are encrypted
+   before upload. Rotate with `npm run access -- rotate-smoke-token <env>`.
+5. **Origin secret visible to account admins.** The resolved `x-origin-verify` value appears
+   in the Lambda and CloudFront configuration. Only the owner has account access.

@@ -15,6 +15,12 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 ```
 
 - One CloudFront domain serves both SPA and API: no CORS, one URL for tests.
+- Owner-only: a CloudFront Function (`infra/edge/owner-only.js`, viewer request, both
+  behaviors) admits only IPs listed in the environment's KeyValueStore (`ip:<addr>`) or
+  requests with the CI `x-egm-smoke-token`; everyone else gets 403. IPv6 is off. The owner
+  manages the list with `npm run access` (see `docs/setup.md`); CDK and CI never write it.
+- The Lambda rejects requests without CloudFront's `x-origin-verify` header, so the raw
+  execute-api URL returns 403. Never rotate `OriginVerifySecret` in place.
 - One parameterized CDK stack, deployed twice: `egm-staging` and `egm-prod`.
 - `egm-github-oidc` is a one-time bootstrap stack (GitHub OIDC provider + deploy role
   restricted to this repo's `main` branch and the `staging`/`prod` environments).
@@ -47,6 +53,7 @@ npm run dev -w web   # SPA with /api proxy
 npm test             # unit, infra, gate-script, and hook tests
 npm run test:e2e     # Playwright against local build + DynamoDB Local
 npm run synth -w infra
+npm run access -- list   # owner only: IP allowlist and smoke token (needs egm-admin)
 ```
 
 ## Pipeline
@@ -96,6 +103,10 @@ This repo is public: logs, job summaries, artifacts, and issues are world-readab
   files, tokens, or AWS account IDs in plain text where avoidable.
 - Every note expires after 7 days (DynamoDB TTL `expiresAt`), and `GET /api/notes`
   returns at most 1000 notes (`MAX_LIST`), so tests must not assume a note is listed.
+- Smoke tests send `SMOKE_TOKEN` (GitHub environment secret) and include a test that an
+  anonymous request gets 403. Run locally from an allowlisted IP with
+  `--grep-invert anonymous`. Their failure reports are encrypted before upload because
+  traces record request headers.
 - Smoke tests must be safe against prod: they only create data tagged `smoke-<sha>` with a
   short (1 hour) DynamoDB TTL, and clean up after themselves.
 - E2E tests own the full UI flows; smoke tests stay small (under ~1 minute) and read-mostly.
