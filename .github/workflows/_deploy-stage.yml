@@ -1,0 +1,57 @@
+name: deploy-stage
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: staging or prod
+        type: string
+        required: true
+      artifact:
+        description: Name of the uploaded cdk.out artifact to deploy
+        type: string
+        required: true
+      version:
+        description: Git SHA the artifact was built from
+        type: string
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.site_url }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+          path: infra/cdk.out
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: deploy
+        env:
+          STACK: egm-${{ inputs.environment }}
+        run: |
+          npx cdk deploy --app infra/cdk.out "$STACK" --require-approval never --outputs-file outputs.json
+          echo "site_url=$(jq -r --arg s "$STACK" '.[$s].SiteUrl' outputs.json)" >> "$GITHUB_OUTPUT"
+      - run: npx playwright install --with-deps chromium
+      - name: Smoke test
+        env:
+          SMOKE_BASE_URL: ${{ steps.deploy.outputs.site_url }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: npm run test:smoke
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-report-${{ inputs.environment }}-${{ github.run_attempt }}
+          path: smoke/playwright-report
+          retention-days: 7
