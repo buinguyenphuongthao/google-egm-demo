@@ -8,8 +8,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const app = new App();
 const version: string = app.node.tryGetContext('version') ?? 'dev';
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION };
+// App stacks stay environment-agnostic: CI synthesizes without AWS credentials or a region
+// (the CLI would default to us-east-1), and the deploy job's AWS_REGION picks the target.
 const shared = {
-  env,
   version,
   webDistPath: path.join(here, '../../web/dist'),
   apiEntry: path.join(here, '../../api/src/lambda.ts'),
