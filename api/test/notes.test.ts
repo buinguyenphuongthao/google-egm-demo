@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_TEXT_LENGTH, SMOKE_TTL_SECONDS, buildNote, parseNoteInput } from '../src/notes';
+import { MAX_TEXT_LENGTH, NOTE_TTL_SECONDS, SMOKE_TTL_SECONDS, buildNote, parseNoteInput } from '../src/notes';
 
 describe('parseNoteInput', () => {
   it('accepts and trims text', () => {
@@ -35,20 +35,28 @@ describe('parseNoteInput', () => {
 describe('buildNote', () => {
   const now = new Date('2026-10-31T00:00:00Z');
 
-  it('stamps id and createdAt', () => {
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+
+  it('stamps id, createdAt, and a 7-day TTL', () => {
+    expect(NOTE_TTL_SECONDS).toBe(604800);
     expect(buildNote({ text: 'hi' }, now, 'id-1')).toEqual({
       id: 'id-1',
       text: 'hi',
       createdAt: '2026-10-31T00:00:00.000Z',
+      expiresAt: nowSeconds + NOTE_TTL_SECONDS,
     });
   });
 
-  it('gives smoke-tagged notes a TTL', () => {
+  it('gives smoke-tagged notes a 1-hour TTL', () => {
+    expect(SMOKE_TTL_SECONDS).toBe(3600);
     const note = buildNote({ text: 'hi', tag: 'smoke-abc' }, now, 'id-2');
-    expect(note.expiresAt).toBe(Math.floor(now.getTime() / 1000) + SMOKE_TTL_SECONDS);
+    expect(note.expiresAt).toBe(nowSeconds + SMOKE_TTL_SECONDS);
   });
 
-  it('does not expire other tagged notes', () => {
-    expect(buildNote({ text: 'hi', tag: 'work' }, now, 'id-3').expiresAt).toBeUndefined();
+  it('gives other tagged notes the standard TTL', () => {
+    expect(buildNote({ text: 'hi', tag: 'work' }, now, 'id-3')).toMatchObject({
+      tag: 'work',
+      expiresAt: nowSeconds + NOTE_TTL_SECONDS,
+    });
   });
 });

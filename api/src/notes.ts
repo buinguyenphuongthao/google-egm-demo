@@ -14,7 +14,9 @@ export interface NoteInput {
 export type ParseResult = { ok: true; value: NoteInput } | { ok: false; error: string };
 
 export const MAX_TEXT_LENGTH = 500;
-// Smoke-test notes expire on their own if a smoke run dies before cleaning up.
+// Every note expires so anonymous writes cannot grow the table without bound.
+export const NOTE_TTL_SECONDS = 7 * 24 * 3600;
+// Smoke-test notes expire sooner in case a smoke run dies before cleaning up.
 export const SMOKE_TTL_SECONDS = 3600;
 const TAG_PATTERN = /^[a-z0-9-]{1,40}$/;
 
@@ -37,12 +39,13 @@ export function parseNoteInput(body: unknown): ParseResult {
 }
 
 export function buildNote(input: NoteInput, now: Date, id: string): Note {
-  const note: Note = { id, text: input.text, createdAt: now.toISOString() };
-  if (input.tag) {
-    note.tag = input.tag;
-    if (input.tag.startsWith('smoke-')) {
-      note.expiresAt = Math.floor(now.getTime() / 1000) + SMOKE_TTL_SECONDS;
-    }
-  }
+  const ttl = input.tag?.startsWith('smoke-') ? SMOKE_TTL_SECONDS : NOTE_TTL_SECONDS;
+  const note: Note = {
+    id,
+    text: input.text,
+    createdAt: now.toISOString(),
+    expiresAt: Math.floor(now.getTime() / 1000) + ttl,
+  };
+  if (input.tag) note.tag = input.tag;
   return note;
 }

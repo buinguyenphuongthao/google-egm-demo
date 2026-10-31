@@ -1,7 +1,7 @@
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { describe, expect, it } from 'vitest';
 import { createHandler } from '../src/handler';
-import type { Note } from '../src/notes';
+import { NOTE_TTL_SECONDS, type Note } from '../src/notes';
 import type { NotesRepo } from '../src/repo';
 
 const ID = '11111111-1111-4111-8111-111111111111';
@@ -74,7 +74,12 @@ describe('notes routes', () => {
     const repo = fakeRepo();
     const res = await handlerFor(repo)(event('POST', '/api/notes', JSON.stringify({ text: ' hi ' })));
     expect(res.statusCode).toBe(201);
-    expect(parse(res.body).note).toEqual({ id: ID, text: 'hi', createdAt: '2026-10-31T00:00:00.000Z' });
+    expect(parse(res.body).note).toEqual({
+      id: ID,
+      text: 'hi',
+      createdAt: '2026-10-31T00:00:00.000Z',
+      expiresAt: Date.parse('2026-10-31T00:00:00Z') / 1000 + NOTE_TTL_SECONDS,
+    });
     expect(repo.notes).toHaveLength(1);
   });
 

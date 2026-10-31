@@ -16,19 +16,28 @@ export interface NotesRepo {
   ping(): Promise<boolean>;
 }
 
+/** Upper bound on notes returned by list(), so one request cannot scan an unbounded table. */
+export const MAX_LIST = 1000;
+
 export function createDynamoRepo(tableName: string, endpoint?: string): NotesRepo {
   const doc = DynamoDBDocumentClient.from(new DynamoDBClient(endpoint ? { endpoint } : {}));
   return {
     async list() {
-      // Demo scale: a full scan is fine. API Gateway throttling bounds the cost.
+      // Demo scale: scan, but stop after MAX_LIST items. Notes expire after a week, and API
+      // Gateway throttling bounds the request rate. Past the cap the result is a sorted
+      // subset, not necessarily the newest MAX_LIST notes.
       const notes: Note[] = [];
       let startKey: Record<string, unknown> | undefined;
       do {
-        const page = await doc.send(new ScanCommand({ TableName: tableName, ExclusiveStartKey: startKey }));
+        const page = await doc.send(
+          new ScanCommand({ TableName: tableName, ExclusiveStartKey: startKey, Limit: MAX_LIST - notes.length }),
+        );
         notes.push(...((page.Items ?? []) as Note[]));
         startKey = page.LastEvaluatedKey;
-      } while (startKey);
-      return notes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      } while (startKey && notes.length < MAX_LIST);
+      return notes
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, MAX_LIST);
     },
     async create(note) {
       await doc.send(
