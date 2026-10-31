@@ -1,0 +1,32 @@
+name: encrypt-upload
+description: Tar the given paths, encrypt with age to .github/audit-recipient.txt, upload as an artifact
+inputs:
+  name:
+    description: Artifact name
+    required: true
+  paths:
+    description: Newline-separated paths to include (missing paths are skipped)
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+      run: |
+        if [ ! -s .github/audit-recipient.txt ]; then
+          echo "::warning::No .github/audit-recipient.txt; skipping report upload (details stay private)"
+          exit 0
+        fi
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq age > /dev/null
+        mapfile -t files < <(printf '%s\n' "$PATHS" | sed '/^$/d')
+        tar czf "$RUNNER_TEMP/report.tar.gz" --ignore-failed-read "${files[@]}" 2>/dev/null || true
+        age -R .github/audit-recipient.txt -o "$RUNNER_TEMP/report.tar.gz.age" "$RUNNER_TEMP/report.tar.gz"
+        rm -f "$RUNNER_TEMP/report.tar.gz"
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ runner.temp }}/report.tar.gz.age
+        if-no-files-found: ignore
+        retention-days: 30

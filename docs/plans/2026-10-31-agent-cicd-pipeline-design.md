@@ -22,6 +22,8 @@ something real to gate; the pipeline is the product.
 | Environments | Staging, then prod; smoke tests gate promotion |
 | Stack depth | SPA + API + DynamoDB |
 | Agent guardrails | Claude Code hooks 1-4 plus CI hardening (see below) |
+| Repo visibility | Public (GitHub Free lacks branch protection on private repos). Workflows from external contributors need approval; audit details are encrypted (see "Public repo constraints") |
+| Runtime | Node 22 (Node 20 reached end of life in April 2026) |
 
 ## 1. App and AWS architecture
 
@@ -34,7 +36,7 @@ Repo layout (npm workspaces):
 
 ```
 web/      Vite + React + TS SPA
-api/      Lambda handlers (TS, Node 20), bundled with esbuild via CDK
+api/      Lambda handlers (TS, Node 22), bundled with esbuild via CDK
 infra/    CDK app: one parameterized stack, deployed as egm-staging and egm-prod
 e2e/      Playwright specs (PR time, full UI flows)
 smoke/    Playwright smoke specs (post-deploy, fast, read-mostly)
@@ -85,8 +87,9 @@ Staging and prod ship the same artifact.
 
 ### `security-weekly.yml` (cron + `workflow_dispatch`)
 
-`standard` full-repo audit of `main`. Uploads the report as an artifact and opens or updates
-a GitHub issue when anything is confirmed. Never blocks deploys.
+`standard` full-repo audit of `main`. Uploads the encrypted report as an artifact and opens or
+updates a GitHub issue (counts and run link only) when anything is confirmed. Never blocks
+deploys.
 
 ### Smoke suite (under ~1 minute)
 
@@ -101,8 +104,8 @@ a GitHub issue when anything is confirmed. Never blocks deploys.
   `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8` (MIT). Never fetched from `main` in CI.
 - The CI prompt explicitly requests full audit mode, the profile, and the diff scope; the
   skill defaults to guidance mode otherwise.
-- Output directory is outside the checkout (the skill requires this) and uploaded as an
-  artifact.
+- Output directory is outside the checkout (the skill requires this). It is uploaded only as
+  an encrypted artifact (see "Public repo constraints").
 - CI runners lack the OS-level sandbox the skill requires for executing target code, so the
   audit is source-only. Runtime behavior is covered by E2E and smoke tests.
 
@@ -161,10 +164,29 @@ runs in the `build` job.
 - Agents run with an explicit read-only tool allowlist (Read, Grep, Glob, read-only git).
 - Branch protection blocks force pushes and direct pushes to `main`.
 
+### Public repo constraints
+
+Logs, job summaries, artifacts, and issues are world-readable. Secrets are not, and fork PRs
+never receive them.
+
+- **Never use `pull_request_target`.** It hands secrets to fork PR code. Workflows use
+  `pull_request` only.
+- Workflow runs from external contributors require maintainer approval (repo setting).
+- Fork PRs run without `CLAUDE_CODE_OAUTH_TOKEN`, so `code-review` and `security-audit` fail
+  closed on them. A maintainer reviews such PRs and re-pushes them from a branch.
+- **Audit details are never public.** Job summaries and issues show only counts by severity
+  and verdict. The full audit output plus `.claude/audit.jsonl` is tarred and encrypted with
+  [age](https://github.com/FiloSottile/age) to the public key in
+  `.github/audit-recipient.txt`, then uploaded as an artifact. The private key stays on the
+  maintainer's machine. Decrypt with `age -d -i <key> report.tar.gz.age | tar xz`.
+- The review agent's PR comments are public. That is acceptable: they describe the PR's own
+  unmerged diff, which is already public.
+
 ### Known residual risk
 
-A malicious PR could attempt prompt injection against the review agent. Accepted for a
-private repo with trusted contributors; tests and the independent security gate are backstops.
+A PR can rewrite the gates that check it, and a malicious PR could attempt prompt injection
+against the review or audit agent. Both are accepted with mitigations; see "Residual risks"
+in `docs/threat-model.md`.
 
 ## 5. One-time setup (documented in `docs/setup.md`)
 
@@ -172,6 +194,8 @@ private repo with trusted contributors; tests and the independent security gate 
 2. Create GitHub Environments `staging` and `prod`; set the deploy role ARN as an
    environment variable.
 3. `claude setup-token`; store as repo secret `CLAUDE_CODE_OAUTH_TOKEN`.
+3a. `age-keygen -o ~/.config/egm/audit-key.txt`; commit the printed public key to
+    `.github/audit-recipient.txt`. Never commit or share the private key.
 4. Branch protection on `main`: required checks `build`, `code-review`, `security-audit`,
    `e2e`; up to date before merge; no force pushes.
 

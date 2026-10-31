@@ -1,0 +1,30 @@
+{
+  "name": "google-egm-demo",
+  "private": true,
+  "workspaces": [
+    "api",
+    "web",
+    "infra",
+    "e2e",
+    "smoke"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "test": "npm test --workspaces --if-present && npm run test:guards --if-present",
+    "test:guards": "node --test .github/scripts/security-gate.test.mjs .claude/hooks/test.mjs",
+    "build": "npm run build -w web",
+    "test:e2e": "npm run e2e -w e2e",
+    "test:smoke": "npm run smoke -w smoke",
+    "db:local": "docker run --rm -d --name egm-dynamodb -p 8000:8000 amazon/dynamodb-local:3.3.2@sha256:6ada631ec7aa5fc83446855eb17233e3dad184fec47477e8140c6c569cfe0c86"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}

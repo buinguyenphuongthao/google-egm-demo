@@ -1,0 +1,46 @@
+name: base-guardrails
+description: >
+  Replace this checkout's agent guardrails and instructions (.claude/, CLAUDE.md,
+  docs/threat-model.md, .mcp.json) and audit recipient with the base branch versions so a
+  PR cannot weaken the hooks, skill, instructions, or encryption key used to review it.
+inputs:
+  base-ref:
+    description: Base branch name
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BASE: ${{ inputs.base-ref }}
+      run: |
+        set -euo pipefail
+        # Public repo: anonymous fetch works without persisted checkout credentials.
+        git fetch --quiet origin "$BASE"
+        on_base() { git cat-file -e "origin/$BASE:$1" 2>/dev/null; }
+
+        if on_base .claude/settings.json; then
+          rm -rf .claude
+          git checkout "origin/$BASE" -- .claude
+          echo "Using .claude/ from origin/$BASE"
+        else
+          echo "::warning::origin/$BASE has no .claude/settings.json yet; using this PR's guardrails (bootstrap only)"
+        fi
+
+        for f in CLAUDE.md docs/threat-model.md .github/audit-recipient.txt; do
+          if on_base "$f"; then
+            git checkout "origin/$BASE" -- "$f"
+          fi
+        done
+
+        # MCP servers are agent capabilities: only the base branch may define them.
+        if on_base .mcp.json; then
+          git checkout "origin/$BASE" -- .mcp.json
+        else
+          rm -f .mcp.json
+        fi
+
+        # Agents also load nested CLAUDE.md files and CLAUDE.local.md; only the restored
+        # root CLAUDE.md may instruct them. (GNU find rejects -delete with -prune, so use -exec rm.)
+        find . -path ./.git -prune -o -name node_modules -prune -o \
+          \( -name CLAUDE.md ! -path ./CLAUDE.md -o -name CLAUDE.local.md \) -type f -print -exec rm -f -- {} +

@@ -5,3 +5,7 @@ test-results/
 playwright-report/
 dist/
 .DS_Store
+cdk.out/
+coverage/
+.claude/audit.jsonl
+.claude/settings.local.json
