@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(npm publish:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(npx cdk deploy:*)",
+      "Bash(npx cdk destroy:*)",
+      "Bash(cdk deploy:*)",
+      "Bash(cdk destroy:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(~/.config/egm/**)",
+      "Read(./.git/**)",
+      "Read(//proc/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.mjs\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-files.mjs\""
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/scan-secrets.mjs\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-log.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}
