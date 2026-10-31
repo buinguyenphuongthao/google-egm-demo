@@ -27,10 +27,20 @@ export interface Card {
   expiresAt?: number;
 }
 
+export type LabelColor = 'gray' | 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'pink';
+
+export interface Label {
+  id: string;
+  projectId: string;
+  name: string;
+  color: LabelColor;
+}
+
 export interface Board {
   project: Project;
   columns: Column[];
   cards: Card[];
+  labels: Label[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -71,7 +81,14 @@ export const createCard = (projectId: string, input: { columnId: string; rank: s
 export const updateCard = (
   projectId: string,
   id: string,
-  input: { columnId?: string; rank?: string; title?: string },
+  input: { columnId?: string; rank?: string; title?: string; description?: string; labelIds?: string[] },
 ) => send<{ card: Card }>('PATCH', `${projectPath(projectId)}/cards/${id}`, input).then((r) => r.card);
 export const deleteCard = (projectId: string, id: string) =>
   send<void>('DELETE', `${projectPath(projectId)}/cards/${id}`);
+
+export const createLabel = (projectId: string, input: { name: string; color: LabelColor }) =>
+  send<{ label: Label }>('POST', `${projectPath(projectId)}/labels`, input).then((r) => r.label);
+export const updateLabel = (projectId: string, id: string, input: { name?: string; color?: LabelColor }) =>
+  send<{ label: Label }>('PATCH', `${projectPath(projectId)}/labels/${id}`, input).then((r) => r.label);
+export const deleteLabel = (projectId: string, id: string) =>
+  send<void>('DELETE', `${projectPath(projectId)}/labels/${id}`);

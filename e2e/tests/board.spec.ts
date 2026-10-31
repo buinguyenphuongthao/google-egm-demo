@@ -69,25 +69,55 @@ async function drag(page: Page, handle: Locator, target: Locator, moving = handl
 }
 
 /**
- * Picks up `handle` with Space, presses each arrow key, then drops, waiting for dnd-kit's
- * screen reader announcement after each key. Right after pickup dnd-kit is still adding
- * its key listener and measuring drop targets, so an arrow key can be ignored; it is
- * pressed again only while the announcement shows no move.
+ * Picks up `handle` with Space, presses each arrow key, then drops. Each move is done when
+ * `reached` is visible: for a column, its announcement ("X is over Y."); for a card going
+ * to another column, the card in that column (its announcement then turns to "over
+ * itself"). Right after pickup dnd-kit is still adding its key listener and measuring
+ * drop targets, so a key can be ignored; it is pressed again only while not yet reached.
  */
-async function keyboardMove(page: Page, handle: Locator, moves: { key: string; over: string }[]) {
+async function keyboardMove(page: Page, handle: Locator, moves: { key: string; reached: Locator }[]) {
   const announcer = page.locator('[aria-live="assertive"]');
   await handle.focus();
   await page.keyboard.press('Space');
-  for (const { key, over } of moves) {
-    const target = new RegExp(` is over ${over}\\.$`);
+  for (const { key, reached } of moves) {
     await expect(async () => {
-      if (!target.test((await announcer.textContent()) ?? '')) await page.keyboard.press(key);
-      await expect(announcer).toHaveText(target, { timeout: 1000 });
+      if (!(await reached.isVisible())) await page.keyboard.press(key);
+      await expect(reached).toBeVisible({ timeout: 1000 });
     }).toPass({ timeout: 10_000 });
   }
   await page.keyboard.press('Space');
   await expect(announcer).toHaveText(/^Dropped/);
 }
+
+interface Label {
+  id: string;
+  name: string;
+}
+
+async function newLabel(request: APIRequestContext, project: Project, name: string, color = 'blue'): Promise<Label> {
+  const res = await request.post(`/api/projects/${project.id}/labels`, { data: { name, color } });
+  expect(res.status()).toBe(201);
+  return (await res.json()).label;
+}
+
+async function newCard(
+  request: APIRequestContext,
+  project: Project,
+  data: { title: string; rank: string; labelIds?: string[]; description?: string },
+) {
+  const todo = (await columnsOf(request, project))[0]!;
+  const res = await request.post(`/api/projects/${project.id}/cards`, { data: { columnId: todo.id, ...data } });
+  expect(res.status()).toBe(201);
+}
+
+async function openLabels(page: Page) {
+  await page.getByRole('button', { name: 'Project actions' }).click();
+  await page.getByRole('menuitem', { name: 'Manage labels' }).click();
+  return page.getByRole('dialog', { name: 'Labels' });
+}
+
+const chipsOf = (page: Page, title: string) =>
+  cardsIn(page, 'To do').getByRole('listitem').filter({ has: card(page, title) }).locator('span');
 
 test('creates, renames, and deletes a project', async ({ page, request }) => {
   const name = unique('e2e created');
@@ -183,8 +213,12 @@ test('drags a card between columns with the mouse', async ({ page, project }) =>
 test('moves a card with the keyboard', async ({ page, project }) => {
   await open(page, project);
   await addCards(page, 'To do', ['Keyboard card']);
-  await keyboardMove(page, card(page, 'Keyboard card'), [{ key: 'ArrowRight', over: 'Doing' }]);
+  await keyboardMove(page, card(page, 'Keyboard card'), [
+    { key: 'ArrowRight', reached: cardsIn(page, 'Doing').getByText('Keyboard card') },
+  ]);
   await expect(cardsIn(page, 'Doing').getByText('Keyboard card')).toBeVisible();
+  // Space picks up and drops; it must not also open the card (Enter does that).
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.reload();
   await expect(cardsIn(page, 'Doing').getByText('Keyboard card')).toBeVisible();
 });
@@ -197,9 +231,10 @@ test('reorders columns and keeps the order after a reload', async ({ page, proje
   await drag(page, page.getByRole('button', { name: 'Move column Doing' }), column(page, 'To do'), column(page, 'Doing'));
   await expect(names).toHaveText(['Doing', 'To do', 'Done']);
 
+  const announced = (text: string) => page.locator('[aria-live="assertive"]').filter({ hasText: text });
   await keyboardMove(page, page.getByRole('button', { name: 'Move column Done' }), [
-    { key: 'ArrowLeft', over: 'To do' },
-    { key: 'ArrowLeft', over: 'Doing' },
+    { key: 'ArrowLeft', reached: announced('Done is over To do.') },
+    { key: 'ArrowLeft', reached: announced('Done is over Doing.') },
   ]);
   await expect(names).toHaveText(['Done', 'Doing', 'To do']);
   await page.reload();
@@ -282,5 +317,164 @@ for (const scheme of ['light', 'dark'] as const) {
     await addCards(page, 'To do', ['An accessible card']);
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
     expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+  });
+}
+
+test('manages labels: add, rename, recolor, delete', async ({ page, request, project }) => {
+  await open(page, project);
+  let dialog = await openLabels(page);
+  await expect(dialog.getByText('No labels yet.')).toBeVisible();
+  for (const [name, color] of [['Bug', 'Red'], ['Feature', 'Green']]) {
+    await dialog.getByLabel('New label name').fill(name!);
+    await dialog.getByLabel('New label color').selectOption({ label: color! });
+    await dialog.getByRole('button', { name: 'Add' }).click();
+    await expect(dialog.getByLabel(`Name of label ${name}`)).toBeVisible();
+  }
+  await dialog.getByLabel('Name of label Feature').fill('Enhancement');
+  await dialog.getByLabel('Name of label Feature').press('Enter');
+  await expect(dialog.getByLabel('Name of label Enhancement')).toBeVisible();
+  await dialog.getByLabel('Color of label Bug').selectOption({ label: 'Orange' });
+  await page.keyboard.press('Escape');
+
+  const savedLabels = async () => (await (await request.get(`/api/projects/${project.id}/board`)).json()).labels;
+  await expect
+    .poll(savedLabels)
+    .toEqual([
+      expect.objectContaining({ name: 'Bug', color: 'orange' }),
+      expect.objectContaining({ name: 'Enhancement', color: 'green' }),
+    ]);
+  const labels = await savedLabels();
+  await newCard(request, project, { title: 'Labelled', rank: 'a0', labelIds: [labels[0].id] });
+  await page.reload();
+  await expect(chipsOf(page, 'Labelled')).toHaveText(['Bug']);
+
+  dialog = await openLabels(page);
+  await dialog.getByRole('button', { name: 'Delete label Bug' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete label' }).click();
+  await expect(dialog.getByLabel('Name of label Bug')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(chipsOf(page, 'Labelled')).toHaveCount(0);
+  await page.reload();
+  await expect(card(page, 'Labelled')).toBeVisible();
+  await expect(chipsOf(page, 'Labelled')).toHaveCount(0);
+});
+
+test('edits a card in the side panel', async ({ page, request, project }) => {
+  await newLabel(request, project, 'Urgent', 'red');
+  await newCard(request, project, { title: 'Panel card', rank: 'a0' });
+  await open(page, project);
+
+  await card(page, 'Panel card').click();
+  const panel = page.getByRole('dialog', { name: 'Card' });
+  await expect(panel.getByText('In To do')).toBeVisible();
+  await panel.getByLabel('Title').fill('Panel card, edited');
+  await panel.getByLabel('Description').click();
+  await panel.getByLabel('Description').fill('Line one\nLine two');
+  await panel.getByRole('button', { name: 'Urgent' }).click();
+  await expect(panel.getByRole('button', { name: 'Urgent' })).toHaveAttribute('aria-pressed', 'true');
+  // Closing with unsaved text still saves it.
+  await panel.getByLabel('Description').fill('Line one\nLine two\nLine three');
+  const savedOnClose = page.waitForResponse(
+    (r) => r.request().method() === 'PATCH' && (r.request().postData() ?? '').includes('Line three'),
+  );
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  expect((await savedOnClose).status()).toBe(200);
+
+  await expect(chipsOf(page, 'Panel card, edited')).toContainText(['Urgent']);
+  await expect(cardsIn(page, 'To do').getByRole('img', { name: 'Has description' })).toBeVisible();
+  await page.reload();
+  await card(page, 'Panel card, edited').press('Enter');
+  await expect(panel.getByLabel('Description')).toHaveValue('Line one\nLine two\nLine three');
+  await expect(panel.getByRole('button', { name: 'Urgent' })).toHaveAttribute('aria-pressed', 'true');
+
+  // Clicking Delete saves the edited text on blur; the delete waits for that save, and
+  // closing the panel does not save again, so nothing is sent to the deleted card.
+  await panel.getByLabel('Description').fill('Edited before delete');
+  await panel.getByRole('button', { name: 'Delete card' }).click();
+  const patches: string[] = [];
+  page.on('request', (r) => r.method() === 'PATCH' && patches.push(r.url()));
+  const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete card' }).click();
+  await expect(panel).toBeHidden();
+  await expect(card(page, 'Panel card, edited')).toHaveCount(0);
+  expect((await deleted).status()).toBe(204);
+  expect(patches).toEqual([]);
+  await expect(page.getByText(/^Could not/)).toHaveCount(0);
+  await page.reload();
+  await expect(cardsIn(page, 'To do').getByRole('listitem')).toHaveCount(0);
+});
+
+test('filters cards by label', async ({ page, request, project }) => {
+  const bug = await newLabel(request, project, 'Bug', 'red');
+  const docs = await newLabel(request, project, 'Docs', 'gray');
+  await newCard(request, project, { title: 'A bug', rank: 'a0', labelIds: [bug.id] });
+  await newCard(request, project, { title: 'Some docs', rank: 'a1', labelIds: [docs.id] });
+  await newCard(request, project, { title: 'Unlabelled', rank: 'a2' });
+  await open(page, project);
+  const todo = cardsIn(page, 'To do').getByRole('listitem');
+  await expect(todo).toHaveCount(3);
+
+  await page.getByRole('button', { name: 'Filter' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Bug' }).click();
+  await expect(todo).toHaveCount(1);
+  await page.getByRole('menuitemcheckbox', { name: 'Docs' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Filter (2)' })).toBeVisible();
+  await expect(todo.locator('button[aria-roledescription]')).toHaveText(['A bug', 'Some docs']);
+
+  await page.getByRole('button', { name: 'Filter (2)' }).click();
+  await page.getByRole('menuitem', { name: 'Clear filter' }).click();
+  await expect(todo).toHaveCount(3);
+});
+
+test('renders card descriptions and label names literally, never as HTML', async ({ page, request, project }) => {
+  // Label names are at most 30 characters.
+  const labelName = `<img src=x onerror=__xss=1>${Math.floor(Math.random() * 100)}`;
+  const description = `<img src=x onerror="window.__xss='description'"> <script>window.__xss='script'</script>`;
+  const label = await newLabel(request, project, labelName, 'pink');
+  await newCard(request, project, { title: 'XSS card', rank: 'a0', labelIds: [label.id], description });
+  await open(page, project);
+
+  await expect(chipsOf(page, 'XSS card')).toContainText([labelName]);
+  await card(page, 'XSS card').click();
+  const panel = page.getByRole('dialog', { name: 'Card' });
+  await expect(panel.getByLabel('Description')).toHaveValue(description);
+  await expect(panel.getByRole('button', { name: labelName })).toBeVisible();
+  await page.keyboard.press('Escape');
+  const dialog = await openLabels(page);
+  await expect(dialog.getByLabel(`Name of label ${labelName}`)).toHaveValue(labelName);
+
+  expect(await page.locator('img, script:not([src])').evaluateAll((els) => els.filter((e) => e.closest('#root, [role=dialog]')).length)).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { __xss?: unknown }).__xss)).toBeUndefined();
+});
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the card panel and labels dialog have no detectable accessibility violations (${scheme})`, async ({
+    page,
+    request,
+    project,
+  }) => {
+    for (const color of ['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']) {
+      await newLabel(request, project, `Label ${color}`, color);
+    }
+    const { labels } = await (await request.get(`/api/projects/${project.id}/board`)).json();
+    await newCard(request, project, {
+      title: 'Card with every label',
+      rank: 'a0',
+      description: 'Details',
+      labelIds: labels.map((l: Label) => l.id),
+    });
+    await page.emulateMedia({ colorScheme: scheme });
+    await open(page, project);
+    const axe = () => new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+
+    expect((await axe()).violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+    await card(page, 'Card with every label').click();
+    await expect(page.getByRole('dialog', { name: 'Card' })).toBeVisible();
+    expect((await axe()).violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+    await page.keyboard.press('Escape');
+    await openLabels(page);
+    expect((await axe()).violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
   });
 }
