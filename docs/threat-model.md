@@ -2,16 +2,29 @@
 
 ## What the app is
 
-An owner-only notes board. Only the owner's allowlisted IPv4 addresses, and CI smoke tests
-carrying a secret token, can reach staging or prod; everyone else gets 403 at the edge.
-Within that boundary there are no user accounts: anyone admitted may list, create, and
-delete any note. Notes must not contain personal data; the UI does not ask for any.
+An owner-only notes app, moving to a Kanban board (projects, columns, cards, labels; design
+in `docs/plans/2026-10-31-kanban-board-design.md`). Until the cleanup step both exist: the
+notes API on the `Notes` table and the board API on the `Board` table. Only the owner's
+allowlisted IPv4 addresses, and CI smoke tests carrying a secret token, can reach staging
+or prod; everyone else gets 403 at the edge. Within that boundary there are no user
+accounts: anyone admitted may read, create, change, and delete any note or board item.
+Notes and board items must not contain personal data; the UI does not ask for any.
 
 ## Intended behavior (not findings)
 
-- No per-user authentication: an admitted request may list/create/delete any note.
+- No per-user authentication: an admitted request may list/create/delete any note, and
+  read/create/change/delete any project, column, card, or label.
 - Notes expire after 7 days (DynamoDB TTL; smoke-test notes after 1 hour). TTL deletion is
   eventual, so an expired note may still be listed for a while.
+- Board data does not expire, except: a card in its project's done column expires 7 days
+  after entering it, and everything in a smoke project (named `smoke-` when created)
+  expires 1 hour after the project was created. The board API treats items past
+  `expiresAt` as absent. Growth is bounded by soft caps instead: 50 projects (smoke
+  projects not counted); per project 20 columns, 1000 cards, 30 labels. Concurrent
+  creates may exceed a cap by one.
+- Board writes are last-write-wins, with no transactions: a project delete removes
+  children first and the project last, and a label delete leaves its ID on cards, which
+  reads ignore.
 - List returns at most 1000 notes, newest first among those scanned. Past that cap a note
   may exist but not be listed.
 - `/api/health` reveals the deployed git SHA to admitted callers (the repo is public anyway).
@@ -25,10 +38,10 @@ delete any note. Notes must not contain personal data; the UI does not ask for a
 |---|---|
 | Internet -> CloudFront | The `owner-only` CloudFront Function admits only `ip:<addr>` keys or a matching `x-egm-smoke-token` from the environment's KeyValueStore, and fails closed. Any fail-open path is a finding. |
 | CloudFront -> API origin | The Lambda rejects requests without the `x-origin-verify` secret (Secrets Manager, resolved at deploy). |
-| Browser -> API | All input untrusted. Body <= 4 KB, text <= 500 chars, tag `[a-z0-9-]{1,40}`. |
-| API -> DynamoDB | Lambda role limited to its own table. No other AWS access. |
-| Note text -> other viewers' browsers | Rendered as text only. Any HTML/script execution is a vulnerability (stored XSS). |
-| Internet -> cost | API Gateway throttles at 10 rps / burst 20. Unbounded spend paths are findings. |
+| Browser -> API | All input untrusted. Notes: body <= 4 KB, text <= 500 chars, tag `[a-z0-9-]{1,40}`. Board: body <= 16 KB; project name 1-80, column name 1-40, card title 1-200, description 0-2000, label name 1-30 (Unicode code points, trimmed); label color one of 8 fixed names, never raw CSS; rank 1-64 chars of the fractional-indexing alphabet; `labelIds` <= 30, unique. Every ID must belong to the project in the path. IDs, `expiresAt`, and `doneAt` are set by the server only. |
+| API -> DynamoDB | Lambda role limited to the `Notes` and `Board` tables. No other AWS access. |
+| User text -> browser | Note text and every board name, title, description, and label name are rendered as text only. Any HTML/script execution is a vulnerability (stored XSS). |
+| Internet -> cost | API Gateway throttles at 10 rps / burst 20; board caps bound stored data. Unbounded spend paths are findings. |
 | PR author -> CI | PR content must not reach secrets, AWS credentials, or the deploy role. Workflows use `pull_request`, never `pull_request_target`. |
 | CI -> AWS | Only `deploy.yml` jobs in `staging`/`prod` environments may assume `egm-github-deploy`. |
 | Agents -> repo/infra | `.claude/` hooks block dangerous commands and edits to guardrail files. |
@@ -66,7 +79,10 @@ listed mitigation.
    - Public output is counts only; full audit output is encrypted. The review verdict is a
      schema-constrained count, and only critical findings fail the check.
 3. **IP allowlisting admits everyone behind the owner's IP** (shared office Wi-Fi, carrier
-   NAT). Accepted for a demo; the owner removes stale IPs with `npm run access -- remove`.
+   NAT). Since board data does not expire, they can read or delete long-lived projects.
+   Accepted for a demo. Mitigations: the owner removes stale IPs with
+   `npm run access -- remove`; the UI asks for confirmation before deletes; the `Board`
+   table has point-in-time recovery in prod.
 4. **Smoke token leak.** Anyone with the token bypasses the IP check. Mitigations: it lives
    only in a GitHub environment secret and the KeyValueStore; the edge strips the header
    before the origin; `npm run access` never prints it; smoke failure reports are encrypted
