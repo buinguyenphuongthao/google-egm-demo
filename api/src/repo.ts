@@ -1,4 +1,4 @@
-import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DeleteCommand,
   DynamoDBDocumentClient,
@@ -45,15 +45,8 @@ export function createDynamoRepo(tableName: string, endpoint?: string): NotesRep
       );
     },
     async delete(id) {
-      try {
-        await doc.send(
-          new DeleteCommand({ TableName: tableName, Key: { id }, ConditionExpression: 'attribute_exists(id)' }),
-        );
-        return true;
-      } catch (err) {
-        if (err instanceof ConditionalCheckFailedException) return false;
-        throw err;
-      }
+      await doc.send(new DeleteCommand({ TableName: tableName, Key: { id } }));
+      return true;
     },
     async ping() {
       try {
