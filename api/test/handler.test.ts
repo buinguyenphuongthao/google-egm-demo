@@ -132,6 +132,11 @@ describe('origin verification', () => {
     expect((await h(event('GET', '/api/health', undefined, { 'x-origin-verify': 'nope' }))).statusCode).toBe(403);
   });
 
+  it('rejects a same-length header with different content', async () => {
+    const forged = secret.slice(0, -1) + 'x';
+    expect((await h(event('GET', '/api/health', undefined, { 'x-origin-verify': forged }))).statusCode).toBe(403);
+  });
+
   it('accepts the right header', async () => {
     expect((await h(event('GET', '/api/health', undefined, { 'x-origin-verify': secret }))).statusCode).toBe(200);
   });
@@ -139,5 +144,11 @@ describe('origin verification', () => {
   it('skips the check when no secret is configured (local dev, e2e)', async () => {
     const local = createHandler({ repo: fakeRepo(), version: 'v1' });
     expect((await local(event('GET', '/api/health'))).statusCode).toBe(200);
+  });
+
+  it('refuses an empty secret as misconfiguration', () => {
+    expect(() => createHandler({ repo: fakeRepo(), version: 'v1', originVerify: '' })).toThrow(
+      'originVerify must be non-empty',
+    );
   });
 });

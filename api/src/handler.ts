@@ -44,6 +44,7 @@ export function createHandler({
   newId = randomUUID,
   originVerify,
 }: HandlerDeps) {
+  if (originVerify === '') throw new Error('originVerify must be non-empty');
   return async (event: APIGatewayProxyEventV2): Promise<Result> => {
     if (originVerify !== undefined && !sameSecret(event.headers?.['x-origin-verify'], originVerify)) {
       return json(403, { error: 'forbidden' });
