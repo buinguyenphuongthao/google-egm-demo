@@ -52,17 +52,28 @@ npm run synth -w infra
 ## Pipeline
 
 - **`pr.yml`** (required checks via branch protection; branch must be up to date):
-  - `build`: typecheck, lint, `npm test`, SPA build, `cdk synth`
+  - `build`: typecheck, lint, `npm test`, SPA build, `cdk synth`. First it warns (never
+    fails) and lists changed gate/guardrail paths (`.github/`, `.claude/`, `CLAUDE.md`,
+    `.mcp.json`, `docs/threat-model.md`): a PR runs its own copy of the gates, so the
+    maintainer reviews those changes line by line.
   - `code-review`: `anthropics/claude-code-action` with `CLAUDE_CODE_OAUTH_TOKEN`. Posts
-    inline comments and writes `review-verdict.json`. Fails only on critical findings.
+    inline comments (a 🟡 Warning on any gate/guardrail change) and returns a structured
+    verdict via `--json-schema` (`critical_count`, `warning_count`, `summary`). Fails only
+    on critical findings or a missing verdict.
   - `security-audit`: security-audit skill, full audit mode, `quick` profile, scoped to
-    the PR diff. Fails on any `confirmed` finding with `overall_severity` high or critical.
+    the PR diff. Enforced by `security-gate.sh <run-dir> <skill-dir> <expected-profile>
+    <expected-sha>`: fails closed unless findings and coverage ledger validate, the profile
+    matches, `source_ref` names the checked-out commit, and `run_status` is `complete`;
+    fails on any `confirmed` finding with `overall_severity` high or critical.
     `needs_validation` items are reported, not blocking.
   - `e2e`: Playwright (Chromium) against local SPA + API + DynamoDB Local.
 - **`deploy.yml`** (push to `main`, serialized): build once -> deploy staging -> smoke
   staging -> deploy prod -> smoke prod. Staging and prod ship the same artifact.
-- **`security-weekly.yml`** (cron + manual): `standard` full-repo audit; opens/updates an
-  issue (counts only) on confirmed findings. Never blocks deploys.
+- **`security-weekly.yml`** (cron + manual): `standard` full-repo audit in a read-only
+  `audit` job; a separate `report` job (`issues: write`, no agent) opens/updates an issue
+  (counts only) on confirmed findings. Never blocks deploys.
+- Third-party actions are pinned by full commit SHA (`# vX.Y.Z` comment); DynamoDB Local
+  by image digest.
 
 ## Public repo rules
 
@@ -83,8 +94,10 @@ This repo is public: logs, job summaries, artifacts, and issues are world-readab
   scoped to this repo via OIDC. No long-lived AWS keys anywhere.
 - Secrets live in GitHub Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`). Never commit `.env`
   files, tokens, or AWS account IDs in plain text where avoidable.
+- Every note expires after 7 days (DynamoDB TTL `expiresAt`), and `GET /api/notes`
+  returns at most 1000 notes (`MAX_LIST`), so tests must not assume a note is listed.
 - Smoke tests must be safe against prod: they only create data tagged `smoke-<sha>` with a
-  short DynamoDB TTL, and clean up after themselves.
+  short (1 hour) DynamoDB TTL, and clean up after themselves.
 - E2E tests own the full UI flows; smoke tests stay small (under ~1 minute) and read-mostly.
 - DynamoDB changes are additive only (new attributes/indexes; no renames or removals in the
   same release). Rollback redeploys code, not data, so the previous version must still work.
@@ -107,8 +120,11 @@ This repo is public: logs, job summaries, artifacts, and issues are world-readab
   are made by the user, not agents.
 - Hook scripts (and `security-gate.sh`) are tested by `npm run test:guards`, which
   `npm test` also runs.
-- In CI, review and audit jobs restore `.claude/` from `main`, run with a read-only tool
-  allowlist, and have no AWS credentials. Only `deploy.yml` can touch AWS.
+- In CI, review and audit jobs restore `.claude/`, `CLAUDE.md`, `docs/threat-model.md`,
+  and `.mcp.json` from the base branch (deleting nested `CLAUDE.md` files), check out
+  without persisted git credentials, run with a read-only tool allowlist, and have no AWS
+  credentials. Only `deploy.yml` can touch AWS. Accepted residual risks are listed in
+  `docs/threat-model.md`.
 
 ## Security-audit skill
 

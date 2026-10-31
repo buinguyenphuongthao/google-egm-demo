@@ -21,6 +21,8 @@ The task bodies below are kept as written. What was actually built differs as fo
 - Task 13: the test file imports `process` from `node:process` (lint `no-undef`); `encrypt-upload` runs `apt-get update` before installing age.
 - Task 14: `_deploy-stage.yml` gained an optional `ref` input; rollback checks out and smoke-tests the rolled-back commit.
 - Task 15 and `security-gate.sh`: validator output, including stderr, is silenced (`> /dev/null 2>&1`) so finding details can't leak into public logs; a 5th gate test covers it.
+- Code review verdict: instead of the agent writing `review-verdict.json`, `code-review` passes `--json-schema` to claude-code-action and reads `steps.review.outputs.structured_output` (`critical_count`, `warning_count`, `summary`). A missing verdict fails closed. The agent needs no write tool.
+- Hardening pass: `security-gate.sh` takes `<expected-profile> <expected-sha>` and also validates the coverage ledger; notes expire after 7 days and list is capped at 1000; `security-weekly.yml` is split into `audit` and `report` jobs; third-party actions are pinned by SHA. See `docs/threat-model.md` "Residual risks".
 - Task 16: hooks are stricter than planned: git global options before `push` are handled, `push --mirror` is treated as force, and protected-path matching is case-insensitive.
 
 ---
