@@ -88,6 +88,50 @@ describe('AppStack', () => {
     });
   });
 
+  it.each([['staging', staging], ['prod', prod]] as const)('%s locks the API origin to CloudFront', (_s, t) => {
+    t.resourceCountIs('AWS::SecretsManager::Secret', 1);
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({ TABLE_NAME: Match.anyValue(), ORIGIN_VERIFY: Match.anyValue() }) },
+    });
+    t.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Origins: Match.arrayWith([
+          Match.objectLike({ OriginCustomHeaders: [Match.objectLike({ HeaderName: 'x-origin-verify' })] }),
+        ]),
+      }),
+    });
+  });
+
+  it.each([['staging', staging], ['prod', prod]] as const)(
+    '%s resolves the origin-verify value from Secrets Manager at deploy time',
+    (_s, t) => {
+      const apiFns = Object.values(t.findResources('AWS::Lambda::Function')).filter(
+        (f) => f.Properties.Environment?.Variables?.TABLE_NAME !== undefined,
+      );
+      expect(apiFns).toHaveLength(1);
+      const envValue = apiFns[0]!.Properties.Environment.Variables.ORIGIN_VERIFY;
+
+      const [dist] = Object.values(t.findResources('AWS::CloudFront::Distribution'));
+      const headers = dist!.Properties.DistributionConfig.Origins.flatMap(
+        (o: { OriginCustomHeaders?: { HeaderName: string; HeaderValue: unknown }[] }) => o.OriginCustomHeaders ?? [],
+      );
+      expect(headers).toHaveLength(1);
+      const headerValue = headers[0].HeaderValue;
+
+      // Never a literal: a CloudFormation dynamic reference built from the secret's Ref.
+      expect(typeof envValue).not.toBe('string');
+      expect(JSON.stringify(envValue)).toContain('{{resolve:secretsmanager:');
+      const [secretId] = Object.keys(t.findResources('AWS::SecretsManager::Secret'));
+      expect(JSON.stringify(envValue)).toContain(JSON.stringify({ Ref: secretId }));
+      expect(headerValue).toEqual(envValue);
+    },
+  );
+
+  it.each([['staging', staging], ['prod', prod]] as const)('%s has an access KeyValueStore', (_s, t) => {
+    t.resourceCountIs('AWS::CloudFront::KeyValueStore', 1);
+    t.hasOutput('AccessStoreArn', {});
+  });
+
   it('outputs the site URL', () => {
     staging.hasOutput('SiteUrl', {});
   });

@@ -9,6 +9,7 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import type { Construct } from 'constructs';
 
 export interface AppStackProps extends StackProps {
@@ -33,13 +34,22 @@ export class AppStack extends Stack {
       removalPolicy,
     });
 
+    // CloudFront sends this value to the API; the Lambda rejects requests without it,
+    // which closes the public execute-api URL. Resolved by CloudFormation at deploy time.
+    const originSecret = new secretsmanager.Secret(this, 'OriginVerifySecret', {
+      description: 'Header value CloudFront sends so the API accepts only CloudFront traffic',
+      generateSecretString: { excludePunctuation: true, passwordLength: 48 },
+      removalPolicy,
+    });
+    const originVerify = originSecret.secretValue.unsafeUnwrap();
+
     const fn = new NodejsFunction(this, 'ApiFunction', {
       entry: props.apiEntry,
       runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
       memorySize: 256,
       timeout: Duration.seconds(10),
-      environment: { TABLE_NAME: table.tableName, VERSION: props.version },
+      environment: { TABLE_NAME: table.tableName, VERSION: props.version, ORIGIN_VERIFY: originVerify },
       logGroup: new logs.LogGroup(this, 'ApiLogs', { retention: logs.RetentionDays.TWO_WEEKS, removalPolicy }),
     });
     table.grantReadWriteData(fn);
@@ -69,7 +79,7 @@ export class AppStack extends Stack {
       },
       additionalBehaviors: {
         '/api/*': {
-          origin: new origins.HttpOrigin(apiDomain),
+          origin: new origins.HttpOrigin(apiDomain, { customHeaders: { 'x-origin-verify': originVerify } }),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
@@ -84,6 +94,13 @@ export class AppStack extends Stack {
       distribution,
       distributionPaths: ['/*'],
     });
+
+    // Owner IPs (ip:<addr>) and the CI smoke token (smoke-token). Data is set by
+    // `npm run access`, never by CDK or CI. Read by the owner-only edge function.
+    const accessStore = new cloudfront.KeyValueStore(this, 'AccessStore', {
+      comment: `Owner-only access list for ${props.stage}`,
+    });
+    new CfnOutput(this, 'AccessStoreArn', { value: accessStore.keyValueStoreArn });
 
     new CfnOutput(this, 'SiteUrl', { value: `https://${distribution.distributionDomainName}` });
   }
