@@ -16,16 +16,26 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { MoreHorizontal, Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ListFilter, MoreHorizontal, Plus } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as api from '../api';
-import type { Board, Card, Column, Project } from '../api';
+import type { Board, Card, Column, Label, LabelColor, Project } from '../api';
 import { InlineInput } from '../components/InlineInput';
 import { ConfirmDialog } from '../components/ui/alert-dialog';
 import { Button } from '../components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
+import { CardPanel } from './CardPanel';
 import { ColumnView } from './ColumnView';
+import { LabelChip } from './LabelChip';
+import { LabelsDialog } from './LabelsDialog';
 import { byRank, findColumn, groupCards, rankAfter, rankAt, type Order } from './order';
 
 interface Props {
@@ -47,6 +57,13 @@ type Dragging = { kind: 'card' | 'column'; id: string };
 
 const message = (err: unknown) => (err instanceof Error ? err.message : 'something went wrong');
 
+// Enter is left to the handle's click, which opens the card.
+const keyboardCodes = { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] };
+const screenReaderInstructions = {
+  draggable:
+    'To pick up this item, press Space. While dragging, use the arrow keys to move it, Space or Enter to drop it, or Escape to cancel.',
+};
+
 export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
   const [board, setBoard] = useState<Board | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -56,6 +73,10 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
   const [dragging, setDragging] = useState<Dragging | null>(null);
   // Card order while a card is dragged between columns; null otherwise.
   const [dragOrder, setDragOrder] = useState<Order | null>(null);
+  const [managingLabels, setManagingLabels] = useState(false);
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
+  // Label ids to filter by; a card shows when it has any of them. Empty shows all cards.
+  const [filter, setFilter] = useState<string[]>([]);
 
   useEffect(() => {
     let current = true;
@@ -93,7 +114,21 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
     [reload],
   );
 
-  const update = (change: (b: Board) => Board) => setBoard((b) => b && change(b));
+  // The API saves a card by reading it and writing it back whole, so two saves to one card
+  // in flight at once (a title on blur, then a label click) could undo each other on the
+  // server. Saves to each card therefore run one at a time.
+  const cardSaves = useRef(new Map<string, Promise<boolean>>());
+  const queueCardSave = useCallback(
+    (id: string, what: string, save: () => Promise<void>): Promise<boolean> => {
+      const run = (cardSaves.current.get(id) ?? Promise.resolve(true)).then(() => attempt(what, save));
+      cardSaves.current.set(id, run);
+      void run.then(() => cardSaves.current.get(id) === run && cardSaves.current.delete(id));
+      return run;
+    },
+    [attempt],
+  );
+
+  const update =(change: (b: Board) => Board) => setBoard((b) => b && change(b));
   const replaceCard = (card: Card) => update((b) => ({ ...b, cards: b.cards.map((c) => (c.id === card.id ? card : c)) }));
   const replaceColumn = (column: Column) =>
     update((b) => ({ ...b, columns: b.columns.map((c) => (c.id === column.id ? column : c)) }));
@@ -101,12 +136,18 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
   const columns = useMemo(() => (board ? [...board.columns].sort(byRank) : []), [board]);
   const cardsById = useMemo(() => new Map(board?.cards.map((c) => [c.id, c])), [board]);
   const columnIds = useMemo(() => new Set(columns.map((c) => c.id)), [columns]);
+  const labels = useMemo(
+    () => (board ? [...board.labels].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)) : []),
+    [board],
+  );
+  const activeFilter = filter.filter((id) => labels.some((l) => l.id === id));
+  const shown = (card: Card) => activeFilter.length === 0 || card.labelIds.some((id) => activeFilter.includes(id));
   const order = useMemo(() => dragOrder ?? groupCards(columns, board?.cards ?? []), [dragOrder, columns, board]);
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes }),
   );
 
   // Columns collide only with columns. A card prefers the card under the pointer, then the
@@ -211,7 +252,9 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
     const rank = rankAt(ids, ids.indexOf(id), (c) => cardsById.get(c)!.rank);
     if (!rank) return failMove('card');
     replaceCard({ ...card, columnId, rank });
-    void attempt('Could not move card', async () => replaceCard(await api.updateCard(pid, id, { columnId, rank })));
+    void queueCardSave(id, 'Could not move card', async () =>
+      replaceCard(await api.updateCard(pid, id, { columnId, rank })),
+    );
   }
 
   function failMove(what: string) {
@@ -223,6 +266,36 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
     setConfirm(c);
   }
 
+  const replaceLabel = (label: Label) =>
+    update((b) => ({ ...b, labels: b.labels.map((l) => (l.id === label.id ? label : l)) }));
+
+  type CardEdit = { title?: string; description?: string; labelIds?: string[] };
+  // Edits only the given fields of the card as it is now, so a server reply does not undo
+  // a newer local edit that is still waiting in the queue.
+  const patchCard = (id: string, fields: CardEdit) =>
+    update((b) => ({ ...b, cards: b.cards.map((c) => (c.id === id ? { ...c, ...fields } : c)) }));
+
+  const saveCard = (card: Card, input: CardEdit) => {
+    patchCard(card.id, input);
+    return queueCardSave(card.id, 'Could not save card', async () => {
+      const saved = await api.updateCard(pid, card.id, input);
+      patchCard(card.id, Object.fromEntries(Object.keys(input).map((k) => [k, saved[k as keyof CardEdit]])));
+    });
+  };
+
+  const confirmDeleteCard = (card: Card) =>
+    ask({
+      title: 'Delete card?',
+      description: `This deletes the card "${card.title}". It cannot be undone.`,
+      confirmLabel: 'Delete card',
+      run: () =>
+        void attempt('Could not delete card', async () => {
+          update((b) => ({ ...b, cards: b.cards.filter((c) => c.id !== card.id) }));
+          await api.deleteCard(pid, card.id);
+        }),
+    });
+
+  const openCard = openCardId ? cardsById.get(openCardId) : undefined;
   const activeCard = dragging?.kind === 'card' ? cardsById.get(dragging.id) : undefined;
   const activeColumn = dragging?.kind === 'column' ? columns.find((c) => c.id === dragging.id) : undefined;
 
@@ -258,14 +331,44 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
             </button>
           </h1>
         )}
+        {labels.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant={activeFilter.length > 0 ? 'outline' : 'ghost'} size="sm" className="ml-auto">
+                <ListFilter /> Filter{activeFilter.length > 0 && ` (${activeFilter.length})`}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {labels.map((label) => (
+                <DropdownMenuCheckboxItem
+                  key={label.id}
+                  checked={activeFilter.includes(label.id)}
+                  onCheckedChange={(on) =>
+                    setFilter(on ? [...activeFilter, label.id] : activeFilter.filter((id) => id !== label.id))
+                  }
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <LabelChip label={label} />
+                </DropdownMenuCheckboxItem>
+              ))}
+              {activeFilter.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setFilter([])}>Clear filter</DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Project actions">
+            <Button variant="ghost" size="icon" aria-label="Project actions" className={labels.length > 0 ? '' : 'ml-auto'}>
               <MoreHorizontal />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+          <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
             <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename project</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setManagingLabels(true)}>Manage labels</DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
               onSelect={() =>
@@ -296,7 +399,7 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
         <DndContext
           sensors={sensors}
           collisionDetection={collisionDetection}
-          accessibility={{ announcements }}
+          accessibility={{ announcements, screenReaderInstructions }}
           onDragStart={onDragStart}
           onDragOver={onDragOver}
           onDragEnd={onDragEnd}
@@ -308,7 +411,8 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
                 <ColumnView
                   key={column.id}
                   column={column}
-                  cards={(order[column.id] ?? []).flatMap((id) => cardsById.get(id) ?? [])}
+                  cards={(order[column.id] ?? []).flatMap((id) => cardsById.get(id) ?? []).filter(shown)}
+                  labels={labels}
                   draggingColumn={dragging?.kind === 'column'}
                   onRename={(name) =>
                     attempt('Could not rename column', async () => {
@@ -336,24 +440,9 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
                       update((b) => ({ ...b, cards: [...b.cards, card] }));
                     })
                   }
-                  onRenameCard={(card, title) =>
-                    attempt('Could not rename card', async () => {
-                      replaceCard({ ...card, title });
-                      replaceCard(await api.updateCard(pid, card.id, { title }));
-                    })
-                  }
-                  onDeleteCard={(card) =>
-                    ask({
-                      title: 'Delete card?',
-                      description: `This deletes the card "${card.title}". It cannot be undone.`,
-                      confirmLabel: 'Delete card',
-                      run: () =>
-                        void attempt('Could not delete card', async () => {
-                          update((b) => ({ ...b, cards: b.cards.filter((c) => c.id !== card.id) }));
-                          await api.deleteCard(pid, card.id);
-                        }),
-                    })
-                  }
+                  onOpenCard={(card) => setOpenCardId(card.id)}
+                  onRenameCard={(card, title) => saveCard(card, { title })}
+                  onDeleteCard={confirmDeleteCard}
                 />
               ))}
             </SortableContext>
@@ -395,6 +484,50 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
           </DragOverlay>
         </DndContext>
       </div>
+
+      <CardPanel
+        card={openCard}
+        column={columns.find((c) => c.id === openCard?.columnId)}
+        labels={labels}
+        onSave={saveCard}
+        onDelete={confirmDeleteCard}
+        onClose={() => setOpenCardId(null)}
+      />
+
+      <LabelsDialog
+        open={managingLabels}
+        onOpenChange={setManagingLabels}
+        labels={labels}
+        onCreate={(input: { name: string; color: LabelColor }) =>
+          attempt('Could not add label', async () => {
+            const label = await api.createLabel(pid, input);
+            update((b) => ({ ...b, labels: [...b.labels, label] }));
+          })
+        }
+        onUpdate={(label, input) =>
+          attempt('Could not save label', async () => {
+            replaceLabel({ ...label, ...input });
+            replaceLabel(await api.updateLabel(pid, label.id, input));
+          })
+        }
+        onDelete={(label) =>
+          ask({
+            title: 'Delete label?',
+            description: `This removes the label "${label.name}" from the project and from every card.`,
+            confirmLabel: 'Delete label',
+            run: () =>
+              void attempt('Could not delete label', async () => {
+                // The server drops the id from cards on read; mirror that here.
+                update((b) => ({
+                  ...b,
+                  labels: b.labels.filter((l) => l.id !== label.id),
+                  cards: b.cards.map((c) => ({ ...c, labelIds: c.labelIds.filter((id) => id !== label.id) })),
+                }));
+                await api.deleteLabel(pid, label.id);
+              }),
+          })
+        }
+      />
 
       <ConfirmDialog
         open={confirm !== null}

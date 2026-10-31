@@ -2,7 +2,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { CircleCheck, GripVertical, MoreHorizontal, Plus } from 'lucide-react';
 import { useState } from 'react';
-import type { Card, Column } from '../api';
+import type { Card, Column, Label } from '../api';
 import { InlineInput } from '../components/InlineInput';
 import { Button } from '../components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
@@ -12,17 +12,20 @@ import { CardItem } from './CardItem';
 interface Props {
   column: Column;
   cards: Card[];
+  /** All labels of the project, in display order. */
+  labels: Label[];
   /** True while a column is dragged. */
   draggingColumn: boolean;
   onRename: (name: string) => Promise<boolean>;
   onDelete: () => void;
   onAddCard: (title: string) => Promise<boolean>;
+  onOpenCard: (card: Card) => void;
   onRenameCard: (card: Card, title: string) => Promise<boolean>;
   onDeleteCard: (card: Card) => void;
 }
 
 export function ColumnView(props: Props) {
-  const { column, cards, draggingColumn } = props;
+  const { column, cards, labels, draggingColumn } = props;
   const [renaming, setRenaming] = useState(false);
   const [adding, setAdding] = useState(false);
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
@@ -94,7 +97,9 @@ export function ColumnView(props: Props) {
             <CardItem
               key={card.id}
               card={card}
+              labels={labels.filter((l) => card.labelIds.includes(l.id))}
               inDoneColumn={column.isDone}
+              onOpen={() => props.onOpenCard(card)}
               dropDisabled={draggingColumn}
               onRename={(title) => props.onRenameCard(card, title)}
               onDelete={() => props.onDeleteCard(card)}
