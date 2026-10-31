@@ -187,7 +187,8 @@ jobs:
             - Execution: this runner has no OS-enforced sandbox. Do not execute target code,
               builds, or tests. Source inspection only; anything that needs execution to decide
               is needs_validation.
-            - Budget: at most 25 agent invocations.
+            - Do all phases yourself in this session. Subagents and scheduled wake-ups are
+              unavailable: background work would outlive this run and its results would be lost.
             - Run validators exactly as `node .claude/skills/security-audit/<validator>.cjs <file>`
               (relative path from the repo root; this is the only allowed form besides the
               absolute skill-directory path).
@@ -203,7 +204,8 @@ jobs:
             Your final message must be exactly "Audit finished." with no finding details,
             because this repository's logs are public.
           claude_args: >-
-            --allowedTools "Read,Grep,Glob,Write,Edit,Agent,Task,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git status:*),Bash(git show:*),Bash(mkdir:*),Bash(node .claude/skills/security-audit/validate-findings.cjs:*),Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-findings.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
+            --allowedTools "Read,Grep,Glob,Write,Edit,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git status:*),Bash(git show:*),Bash(mkdir:*),Bash(node .claude/skills/security-audit/validate-findings.cjs:*),Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-findings.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
+            --disallowedTools "Agent,Task,ScheduleWakeup"
       # Public log: tool names and counts only, never tool inputs (they can hold finding details).
       - name: Summarize agent run
         if: always()

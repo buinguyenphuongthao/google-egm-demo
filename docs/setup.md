@@ -136,3 +136,44 @@ gh pr create --repo $R --base main --head fork-pr-$PR --title "Fork PR #$PR" --b
 If prod smoke fails, `deploy.yml` redeploys the commit at tag `prod-good`, which moves only
 after a successful prod smoke run. The first prod deploy has no `prod-good` yet, so a failure
 there cannot roll back: the rollback job fails at checkout. Fix forward with a new PR.
+
+## Owner-only access
+
+Both environments are meant to be reachable only from the owner's IP addresses, plus CI smoke
+tests carrying a secret token. Each stack has a CloudFront KeyValueStore (stack output
+`AccessStoreArn`) holding `ip:<address>` keys and a `smoke-token` key. `npm run access`
+manages it; nothing in the repo or CI writes to it. Your IP never enters git or CI logs.
+
+Prerequisites: AWS CLI v2, `gh` logged in with admin access to this repo, and the
+`egm-admin` profile (`aws sso login --profile egm-admin`). Set `AWS_PROFILE` to use another.
+
+```bash
+npm run access -- allow-me                     # add your current public IPv4 to both environments
+npm run access -- list                         # show allowed IPs; the token shows only as "(set)"
+npm run access -- remove 203.0.113.7           # remove an IP from both environments
+npm run access -- rotate-smoke-token staging   # new token in GitHub and the store; never printed
+npm run access -- rotate-smoke-token prod
+```
+
+Run `allow-me` again whenever your IP changes (new network, router restart). Changes take
+effect within seconds; no deploy needed. Only IPv4 is allowlisted.
+
+### First-time seeding
+
+The stores start empty. Once the edge lock is on, an empty store blocks everyone, including
+the smoke tests. So after the deploy that creates the stores, and before the lock ships:
+
+```bash
+npm run access -- allow-me
+npm run access -- rotate-smoke-token staging
+npm run access -- rotate-smoke-token prod
+npm run access -- list   # both environments: your ip:<address> and smoke-token (set)
+```
+
+### API origin secret
+
+CloudFront sends a generated Secrets Manager value (`OriginVerifySecret`) in the
+`x-origin-verify` header, and the API Lambda rejects requests without it, so the raw
+`execute-api` URL is unusable. Never rotate this secret in place: the Lambda would pick up the
+new value on its next deploy while CloudFront kept the old one, and every API call would
+return 403. To rotate, change the construct id in `infra/lib/app-stack.ts` and deploy.

@@ -1,5 +1,5 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { buildNote, parseNoteInput } from './notes';
 import type { NotesRepo } from './repo';
 
@@ -13,6 +13,8 @@ export interface HandlerDeps {
   version: string;
   now?: () => Date;
   newId?: () => string;
+  /** Value CloudFront sends in x-origin-verify. Unset only for local dev and e2e. */
+  originVerify?: string;
 }
 
 function json(statusCode: number, body: unknown): Result {
@@ -28,8 +30,25 @@ function readBody(event: APIGatewayProxyEventV2): string {
   return event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body;
 }
 
-export function createHandler({ repo, version, now = () => new Date(), newId = randomUUID }: HandlerDeps) {
+function sameSecret(given: string | undefined, expected: string): boolean {
+  if (given === undefined) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function createHandler({
+  repo,
+  version,
+  now = () => new Date(),
+  newId = randomUUID,
+  originVerify,
+}: HandlerDeps) {
+  if (originVerify === '') throw new Error('originVerify must be non-empty');
   return async (event: APIGatewayProxyEventV2): Promise<Result> => {
+    if (originVerify !== undefined && !sameSecret(event.headers?.['x-origin-verify'], originVerify)) {
+      return json(403, { error: 'forbidden' });
+    }
     const method = event.requestContext.http.method;
     const path = event.rawPath;
     try {

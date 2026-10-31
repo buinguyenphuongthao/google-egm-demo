@@ -88,6 +88,50 @@ describe('AppStack', () => {
     });
   });
 
+  it.each([['staging', staging], ['prod', prod]] as const)(
+    '%s locks the API origin to CloudFront with a Secrets Manager dynamic reference',
+    (_s, t) => {
+      t.resourceCountIs('AWS::SecretsManager::Secret', 1);
+      const apiFns = Object.values(t.findResources('AWS::Lambda::Function')).filter(
+        (f) => f.Properties.Environment?.Variables?.TABLE_NAME !== undefined,
+      );
+      expect(apiFns).toHaveLength(1);
+      const envValue = apiFns[0]!.Properties.Environment.Variables.ORIGIN_VERIFY;
+
+      type Origin = {
+        S3OriginConfig?: unknown;
+        CustomOriginConfig?: unknown;
+        OriginCustomHeaders?: { HeaderName: string; HeaderValue: unknown }[];
+      };
+      const [dist] = Object.values(t.findResources('AWS::CloudFront::Distribution'));
+      const origins: Origin[] = dist!.Properties.DistributionConfig.Origins;
+      const s3Origins = origins.filter((o) => o.S3OriginConfig !== undefined);
+      const apiOrigins = origins.filter((o) => o.CustomOriginConfig !== undefined);
+      expect(s3Origins).toHaveLength(1);
+      expect(apiOrigins).toHaveLength(1);
+      expect(s3Origins[0]!.OriginCustomHeaders).toBeUndefined();
+      expect(apiOrigins[0]!.OriginCustomHeaders).toHaveLength(1);
+      const header = apiOrigins[0]!.OriginCustomHeaders![0]!;
+      expect(header.HeaderName).toBe('x-origin-verify');
+
+      // Never a literal: a CloudFormation dynamic reference built from the secret's Ref.
+      expect(typeof envValue).not.toBe('string');
+      expect(JSON.stringify(envValue)).toContain('{{resolve:secretsmanager:');
+      const [secretId] = Object.keys(t.findResources('AWS::SecretsManager::Secret'));
+      expect(JSON.stringify(envValue)).toContain(JSON.stringify({ Ref: secretId }));
+      expect(header.HeaderValue).toEqual(envValue);
+    },
+  );
+
+  it.each([
+    ['staging', staging, 'Delete'],
+    ['prod', prod, 'Retain'],
+  ] as const)('%s has an access KeyValueStore with deletion policy %s', (_s, t, policy) => {
+    t.resourceCountIs('AWS::CloudFront::KeyValueStore', 1);
+    t.hasResource('AWS::CloudFront::KeyValueStore', { DeletionPolicy: policy, UpdateReplacePolicy: policy });
+    t.hasOutput('AccessStoreArn', {});
+  });
+
   it('outputs the site URL', () => {
     staging.hasOutput('SiteUrl', {});
   });
