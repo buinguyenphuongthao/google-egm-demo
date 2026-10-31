@@ -75,7 +75,7 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
   const [dragOrder, setDragOrder] = useState<Order | null>(null);
   const [managingLabels, setManagingLabels] = useState(false);
   const [openCardId, setOpenCardId] = useState<string | null>(null);
-  // Label ids to filter by; a card shows when it has any of them. Empty shows all cards.
+  // Label ids to filter by. Empty shows all cards.
   const [filter, setFilter] = useState<string[]>([]);
 
   useEffect(() => {
@@ -143,7 +143,8 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
     [board],
   );
   const activeFilter = filter.filter((id) => labels.some((l) => l.id === id));
-  const shown = (card: Card) => activeFilter.length === 0 || card.labelIds.some((id) => activeFilter.includes(id));
+  // A card shows when it has every chosen label, so each extra label narrows the board.
+  const shown = (card: Card) => activeFilter.every((id) => card.labelIds.includes(id));
   const order = useMemo(() => dragOrder ?? groupCards(columns, board?.cards ?? []), [dragOrder, columns, board]);
 
   const sensors = useSensors(
