@@ -4,9 +4,8 @@ Demo of an agent-driven CI/CD pipeline. A small Notes app (SPA + API + DynamoDB 
 exists mainly to give the pipeline something real to gate. Every deploy must pass four gates:
 AI code review, AI security audit, Playwright E2E tests, and post-deploy smoke tests.
 
-> Status: design approved, see `docs/plans/2026-10-31-agent-cicd-pipeline-design.md`.
-> Directories below are planned, not yet scaffolded. Update this file as pieces land;
-> keep it describing what IS, not what was planned.
+> Status: implemented. Design: `docs/plans/2026-10-31-agent-cicd-pipeline-design.md`.
+> Setup: `docs/setup.md`. Keep this file describing what IS, not what was planned.
 
 ## Architecture
 
@@ -28,28 +27,63 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 | Path | Contents |
 |---|---|
 | `web/` | Vite + React + TypeScript SPA |
-| `api/` | Lambda handlers (TypeScript, Node 20), bundled by CDK via esbuild |
-| `infra/` | CDK app (TypeScript) |
+| `api/` | Lambda handler (TypeScript, Node 22 runtime), bundled by CDK via esbuild; local dev server |
+| `infra/` | CDK app (TypeScript): app stack and `egm-github-oidc` bootstrap stack |
 | `e2e/` | Playwright specs run on PRs against a local build + DynamoDB Local |
 | `smoke/` | Playwright smoke specs run after each deploy against the live URL |
+| `.claude/hooks/`, `.claude/settings.json` | Agent guardrail hooks (see below) |
 | `.claude/skills/security-audit/` | Vendored copy of cloudflare/security-audit-skill |
-| `.github/workflows/` | `pr.yml`, `deploy.yml`, `security-weekly.yml` |
-| `docs/plans/` | Design docs and implementation plans |
+| `.github/workflows/` | `pr.yml`, `deploy.yml` (+ reusable `_deploy-stage.yml`), `security-weekly.yml` |
+| `.github/actions/` | Composite actions: `setup`, `base-guardrails`, `encrypt-upload` |
+| `.github/scripts/` | `security-gate.sh` (audit verdict gate) and its tests |
+| `docs/` | `setup.md` (one-time setup), `threat-model.md`, `plans/` (design + plan) |
+
+## Commands
+
+```
+npm run db:local     # start DynamoDB Local (Docker)
+npm run dev -w api   # API on :3001
+npm run dev -w web   # SPA with /api proxy
+npm test             # unit, infra, gate-script, and hook tests
+npm run test:e2e     # Playwright against local build + DynamoDB Local
+npm run synth -w infra
+```
 
 ## Pipeline
 
 - **`pr.yml`** (required checks via branch protection; branch must be up to date):
-  - `build`: typecheck, lint, unit tests, `cdk synth`
+  - `build`: typecheck, lint, `npm test`, SPA build, `cdk synth`. First it warns (never
+    fails) and lists changed gate/guardrail paths (`.github/`, `.claude/`, `CLAUDE.md`,
+    `.mcp.json`, `docs/threat-model.md`): a PR runs its own copy of the gates, so the
+    maintainer reviews those changes line by line.
   - `code-review`: `anthropics/claude-code-action` with `CLAUDE_CODE_OAUTH_TOKEN`. Posts
-    inline comments and writes `review-verdict.json`. Fails only on critical findings.
+    inline comments (a 🟡 Warning on any gate/guardrail change) and returns a structured
+    verdict via `--json-schema` (`critical_count`, `warning_count`, `summary`). Fails only
+    on critical findings or a missing verdict.
   - `security-audit`: security-audit skill, full audit mode, `quick` profile, scoped to
-    the PR diff. Fails on any `confirmed` finding with `overall_severity` high or critical.
+    the PR diff. Enforced by `security-gate.sh <run-dir> <skill-dir> <expected-profile>
+    <expected-sha>`: fails closed unless findings and coverage ledger validate, the profile
+    matches, `source_ref` names the checked-out commit, and `run_status` is `complete`;
+    fails on any `confirmed` finding with `overall_severity` high or critical.
     `needs_validation` items are reported, not blocking.
   - `e2e`: Playwright (Chromium) against local SPA + API + DynamoDB Local.
 - **`deploy.yml`** (push to `main`, serialized): build once -> deploy staging -> smoke
   staging -> deploy prod -> smoke prod. Staging and prod ship the same artifact.
-- **`security-weekly.yml`** (cron + manual): `standard` full-repo audit; opens/updates an
-  issue on confirmed findings. Never blocks deploys.
+- **`security-weekly.yml`** (cron + manual): `standard` full-repo audit in a read-only
+  `audit` job; a separate `report` job (`issues: write`, no agent) opens/updates an issue
+  (counts only) on confirmed findings. Never blocks deploys.
+- Third-party actions are pinned by full commit SHA (`# vX.Y.Z` comment); DynamoDB Local
+  by image digest.
+
+## Public repo rules
+
+This repo is public: logs, job summaries, artifacts, and issues are world-readable.
+
+- Never use `pull_request_target` in any workflow. It exposes secrets to fork PR code.
+- Never print security finding details (titles, traces, file paths) to logs, summaries,
+  issues, or PR comments. Publish counts only. Full audit output is encrypted with age to
+  `.github/audit-recipient.txt` before upload.
+- Never read, print, or commit the age private key (`~/.config/egm/audit-key.txt`).
 
 ## Conventions
 
@@ -60,8 +94,10 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
   scoped to this repo via OIDC. No long-lived AWS keys anywhere.
 - Secrets live in GitHub Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`). Never commit `.env`
   files, tokens, or AWS account IDs in plain text where avoidable.
+- Every note expires after 7 days (DynamoDB TTL `expiresAt`), and `GET /api/notes`
+  returns at most 1000 notes (`MAX_LIST`), so tests must not assume a note is listed.
 - Smoke tests must be safe against prod: they only create data tagged `smoke-<sha>` with a
-  short DynamoDB TTL, and clean up after themselves.
+  short (1 hour) DynamoDB TTL, and clean up after themselves.
 - E2E tests own the full UI flows; smoke tests stay small (under ~1 minute) and read-mostly.
 - DynamoDB changes are additive only (new attributes/indexes; no renames or removals in the
   same release). Rollback redeploys code, not data, so the previous version must still work.
@@ -80,8 +116,15 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
   tool call is logged to `.claude/audit.jsonl` (gitignored).
 - Hooks are guardrails, not a security boundary. Do not try to work around a blocked
   action; stop and ask the user instead.
-- In CI, review and audit jobs restore `.claude/` from `main`, run with a read-only tool
-  allowlist, and have no AWS credentials. Only `deploy.yml` can touch AWS.
+- If a hook blocks something you need, stop and ask the user. Hook and settings changes
+  are made by the user, not agents.
+- Hook scripts (and `security-gate.sh`) are tested by `npm run test:guards`, which
+  `npm test` also runs.
+- In CI, review and audit jobs restore `.claude/`, `CLAUDE.md`, `docs/threat-model.md`,
+  and `.mcp.json` from the base branch (deleting nested `CLAUDE.md` files), check out
+  without persisted git credentials, run with a read-only tool allowlist, and have no AWS
+  credentials. Only `deploy.yml` can touch AWS. Accepted residual risks are listed in
+  `docs/threat-model.md`.
 
 ## Security-audit skill
 
@@ -94,4 +137,5 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 ## Git
 
 - `main` is protected; all changes go through PRs that pass every gate.
-- Remote: `github.com/buinguyenphuongthao/google-egm-demo` (private).
+- Remote: `github.com/buinguyenphuongthao/google-egm-demo` (public). Workflow runs from
+  external contributors require maintainer approval.
