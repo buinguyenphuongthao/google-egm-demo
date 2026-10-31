@@ -22,22 +22,28 @@ test('health reports the deployed version and a healthy db', async ({ request })
 
 test('SPA loads', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Notes' })).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Notes' })).toBeAttached();
+  await expect(page.getByRole('navigation', { name: 'Projects' })).toBeVisible();
 });
 
-test('API round trip', async ({ request }) => {
-  const tag = `smoke-${expectedVersion.slice(0, 7)}`;
-  const created = await request.post('/api/notes', { data: { text: 'smoke test note', tag } });
+test('board API round trip', async ({ request }) => {
+  // A smoke- project: all its items expire after 1 hour and it does not count toward the cap.
+  const created = await request.post('/api/projects', { data: { name: `smoke-${expectedVersion.slice(0, 7)}` } });
   expect(created.status()).toBe(201);
-  const { note } = await created.json();
+  const { project } = await created.json();
+  const base = `/api/projects/${project.id}`;
   try {
-    // list is capped (MAX_LIST), so membership is not guaranteed; the 204 below proves the note exists.
-    const listed = await request.get('/api/notes');
-    expect(listed.status()).toBe(200);
-    expect(Array.isArray((await listed.json()).notes)).toBe(true);
+    const { columns } = await (await request.get(`${base}/board`)).json();
+    const [todo, doing] = columns;
+    const added = await request.post(`${base}/cards`, { data: { columnId: todo.id, rank: 'a0', title: 'smoke card' } });
+    expect(added.status()).toBe(201);
+    const { card } = await added.json();
+
+    const moved = await request.patch(`${base}/cards/${card.id}`, { data: { columnId: doing.id, rank: 'a0' } });
+    expect(moved.status()).toBe(200);
+    const board = await (await request.get(`${base}/board`)).json();
+    expect(board.cards).toEqual([expect.objectContaining({ id: card.id, columnId: doing.id })]);
   } finally {
-    expect((await request.delete(`/api/notes/${note.id}`)).status()).toBe(204);
+    expect((await request.delete(base)).status()).toBe(204);
   }
 });
 

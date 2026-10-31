@@ -7,7 +7,7 @@ import { memoryBoardRepo } from './memory-board-repo';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 
-function fakeRepo(initial: Note[] = [], healthy = true): NotesRepo & { notes: Note[] } {
+function fakeRepo(initial: Note[] = []): NotesRepo & { notes: Note[] } {
   const notes = [...initial];
   return {
     notes,
@@ -22,9 +22,6 @@ function fakeRepo(initial: Note[] = [], healthy = true): NotesRepo & { notes: No
       if (i === -1) return false;
       notes.splice(i, 1);
       return true;
-    },
-    async ping() {
-      return healthy;
     },
   };
 }
@@ -44,10 +41,10 @@ function event(
   } as unknown as APIGatewayProxyEventV2;
 }
 
-function handlerFor(repo: NotesRepo) {
+function handlerFor(repo: NotesRepo, boardRepo = memoryBoardRepo()) {
   return createHandler({
     repo,
-    boardRepo: memoryBoardRepo(),
+    boardRepo,
     version: 'abc123',
     now: () => new Date('2026-10-31T00:00:00Z'),
     newId: () => ID,
@@ -63,8 +60,10 @@ describe('GET /api/health', () => {
     expect(parse(res.body)).toEqual({ status: 'ok', version: 'abc123', dbOk: true });
   });
 
-  it('returns 503 when the db is unreachable', async () => {
-    const res = await handlerFor(fakeRepo([], false))(event('GET', '/api/health'));
+  it('returns 503 when the Board table is unreachable', async () => {
+    const res = await handlerFor(fakeRepo(), { ...memoryBoardRepo(), ping: async () => false })(
+      event('GET', '/api/health'),
+    );
     expect(res.statusCode).toBe(503);
     expect(parse(res.body)).toMatchObject({ status: 'degraded', dbOk: false });
   });

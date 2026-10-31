@@ -1,10 +1,37 @@
-export interface Note {
+// Client for the board API (/api/projects/...). Shapes match api/src/board.ts.
+
+export interface Project {
   id: string;
-  text: string;
+  name: string;
   createdAt: string;
+  isSmoke: boolean;
 }
 
-export const MAX_TEXT_LENGTH = 500;
+export interface Column {
+  id: string;
+  projectId: string;
+  name: string;
+  rank: string;
+  isDone: boolean;
+}
+
+export interface Card {
+  id: string;
+  projectId: string;
+  columnId: string;
+  rank: string;
+  title: string;
+  description: string;
+  labelIds: string[];
+  /** Epoch seconds; set by the server for cards in the done column. */
+  expiresAt?: number;
+}
+
+export interface Board {
+  project: Project;
+  columns: Column[];
+  cards: Card[];
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -18,10 +45,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
-export const listNotes = () => request<{ notes: Note[] }>('/api/notes').then((r) => r.notes);
+const send = <T>(method: string, path: string, body?: unknown) =>
+  request<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 
-export const createNote = (text: string) =>
-  request<{ note: Note }>('/api/notes', { method: 'POST', body: JSON.stringify({ text }) }).then((r) => r.note);
+const projectPath = (id: string) => `/api/projects/${encodeURIComponent(id)}`;
 
-export const deleteNote = (id: string) =>
-  request<void>(`/api/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const listProjects = () => request<{ projects: Project[] }>('/api/projects').then((r) => r.projects);
+export const createProject = (name: string) =>
+  send<{ project: Project }>('POST', '/api/projects', { name }).then((r) => r.project);
+export const renameProject = (id: string, name: string) =>
+  send<{ project: Project }>('PATCH', projectPath(id), { name }).then((r) => r.project);
+export const deleteProject = (id: string) => send<void>('DELETE', projectPath(id));
+
+export const getBoard = (projectId: string) => request<Board>(`${projectPath(projectId)}/board`);
+
+export const createColumn = (projectId: string, input: { name: string; rank: string }) =>
+  send<{ column: Column }>('POST', `${projectPath(projectId)}/columns`, input).then((r) => r.column);
+export const updateColumn = (projectId: string, id: string, input: { name?: string; rank?: string }) =>
+  send<{ column: Column }>('PATCH', `${projectPath(projectId)}/columns/${id}`, input).then((r) => r.column);
+export const deleteColumn = (projectId: string, id: string) =>
+  send<void>('DELETE', `${projectPath(projectId)}/columns/${id}`);
+
+export const createCard = (projectId: string, input: { columnId: string; rank: string; title: string }) =>
+  send<{ card: Card }>('POST', `${projectPath(projectId)}/cards`, input).then((r) => r.card);
+export const updateCard = (
+  projectId: string,
+  id: string,
+  input: { columnId?: string; rank?: string; title?: string },
+) => send<{ card: Card }>('PATCH', `${projectPath(projectId)}/cards/${id}`, input).then((r) => r.card);
+export const deleteCard = (projectId: string, id: string) =>
+  send<void>('DELETE', `${projectPath(projectId)}/cards/${id}`);

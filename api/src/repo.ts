@@ -2,7 +2,6 @@ import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client
 import {
   DeleteCommand,
   DynamoDBDocumentClient,
-  GetCommand,
   PutCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
@@ -13,7 +12,6 @@ export interface NotesRepo {
   create(note: Note): Promise<void>;
   /** Returns false when no note has this id. */
   delete(id: string): Promise<boolean>;
-  ping(): Promise<boolean>;
 }
 
 /** Upper bound on notes returned by list(), so one request cannot scan an unbounded table. */
@@ -53,14 +51,6 @@ export function createDynamoRepo(tableName: string, endpoint?: string): NotesRep
       } catch (err) {
         if (err instanceof ConditionalCheckFailedException) return false;
         throw err;
-      }
-    },
-    async ping() {
-      try {
-        await doc.send(new GetCommand({ TableName: tableName, Key: { id: '__health__' } }));
-        return true;
-      } catch {
-        return false;
       }
     },
   };

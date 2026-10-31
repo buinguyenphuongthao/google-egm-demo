@@ -13,7 +13,6 @@ const notesRepo: NotesRepo = {
   list: async () => [],
   create: async () => {},
   delete: async () => false,
-  ping: async () => true,
 };
 
 function event(method: string, path: string, body?: unknown): APIGatewayProxyEventV2 {

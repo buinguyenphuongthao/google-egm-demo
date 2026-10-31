@@ -1,71 +1,119 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { MAX_TEXT_LENGTH, createNote, deleteNote, listNotes, type Note } from './api';
+import { Menu } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Toaster, toast } from 'sonner';
+import { createProject, listProjects, type Project } from './api';
+import { BoardView } from './board/BoardView';
+import { InlineInput } from './components/InlineInput';
+import { Button } from './components/ui/button';
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from './components/ui/sheet';
+import { Sidebar } from './Sidebar';
+import { useTheme } from './theme';
+
+// The open project lives in the URL hash, so a reload keeps it.
+const hashId = () => decodeURIComponent(window.location.hash.slice(1)) || undefined;
 
 export function App() {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [text, setText] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useTheme();
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [selectedId, setSelectedId] = useState(hashId);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [creatingFirst, setCreatingFirst] = useState(false);
 
   useEffect(() => {
-    listNotes()
-      .then(setNotes)
-      .catch(() => setError('Could not load notes'))
-      .finally(() => setLoading(false));
+    listProjects().then(setProjects, () => setLoadFailed(true));
+    const onHash = () => setSelectedId(hashId());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
+  const active = projects?.find((p) => p.id === selectedId) ?? projects?.[0];
+
+  function select(id: string | undefined) {
+    setSelectedId(id);
+    setSheetOpen(false);
+    history.replaceState(null, '', id ? `#${encodeURIComponent(id)}` : window.location.pathname);
+  }
+
+  async function create(name: string): Promise<boolean> {
     try {
-      const note = await createNote(text);
-      setNotes((prev) => [note, ...prev]);
-      setText('');
+      const project = await createProject(name);
+      setProjects((ps) => [...(ps ?? []), project]);
+      select(project.id);
+      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save note');
+      toast.error(`Could not create project: ${err instanceof Error ? err.message : 'something went wrong'}`);
+      return false;
     }
   }
 
-  async function onDelete(id: string) {
-    setError(null);
-    try {
-      await deleteNote(id);
-      setNotes((prev) => prev.filter((n) => n.id !== id));
-    } catch {
-      setError('Could not delete note');
-    }
-  }
+  const sidebar = (
+    <Sidebar
+      projects={projects ?? []}
+      activeId={active?.id}
+      onSelect={select}
+      onCreate={create}
+      theme={theme}
+      onTheme={setTheme}
+    />
+  );
+
+  const menuButton = (
+    <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+      <SheetTrigger asChild>
+        <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open projects">
+          <Menu />
+        </Button>
+      </SheetTrigger>
+      <SheetContent>
+        <SheetTitle className="sr-only">Projects</SheetTitle>
+        {sidebar}
+      </SheetContent>
+    </Sheet>
+  );
 
   return (
-    <main>
-      <h1>Notes</h1>
-      <form onSubmit={onSubmit}>
-        <label htmlFor="note-text">New note</label>
-        <textarea
-          id="note-text"
-          value={text}
-          maxLength={MAX_TEXT_LENGTH}
-          onChange={(e) => setText(e.target.value)}
-        />
-        <button type="submit" disabled={text.trim().length === 0}>
-          Add note
-        </button>
-      </form>
-      {error && <p role="alert">{error}</p>}
-      {loading ? (
-        <p>Loading…</p>
-      ) : (
-        <ul aria-label="Notes">
-          {notes.map((note) => (
-            <li key={note.id}>
-              <span>{note.text}</span>
-              <button type="button" aria-label={`Delete note: ${note.text}`} onClick={() => onDelete(note.id)}>
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+    <div className="flex h-dvh">
+      <aside className="hidden w-64 shrink-0 border-r md:block">{sidebar}</aside>
+      <main className="flex min-w-0 flex-1 flex-col">
+        {active ? (
+          <BoardView
+            key={active.id}
+            projectId={active.id}
+            leading={menuButton}
+            onRenamed={(project) => setProjects((ps) => ps && ps.map((p) => (p.id === project.id ? project : p)))}
+            onDeleted={(id) => {
+              setProjects((ps) => ps && ps.filter((p) => p.id !== id));
+              select(undefined);
+            }}
+          />
+        ) : (
+          <>
+            <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">{menuButton}</header>
+            <div className="flex flex-1 items-center justify-center p-4">
+              {loadFailed ? (
+                <p role="alert" className="text-sm text-muted-foreground">
+                  Could not load projects.
+                </p>
+              ) : projects === null ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : creatingFirst ? (
+                <InlineInput
+                  className="max-w-xs"
+                  label="New project name"
+                  placeholder="Project name"
+                  maxLength={80}
+                  onSubmit={create}
+                  onCancel={() => setCreatingFirst(false)}
+                />
+              ) : (
+                <Button onClick={() => setCreatingFirst(true)}>Create your first project</Button>
+              )}
+            </div>
+          </>
+        )}
+      </main>
+      <Toaster theme={theme} position="bottom-right" richColors closeButton />
+    </div>
   );
 }

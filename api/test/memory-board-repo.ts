@@ -43,5 +43,8 @@ export function memoryBoardRepo(): BoardRepo & { projects: Map<string, Project>;
     async deleteItems(list) {
       for (const i of list) items.delete(key(i));
     },
+    async ping() {
+      return true;
+    },
   };
 }
