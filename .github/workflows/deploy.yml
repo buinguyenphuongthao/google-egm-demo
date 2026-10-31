@@ -34,6 +34,8 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    # A called workflow sees environment secrets (SMOKE_TOKEN) only when secrets are inherited.
+    secrets: inherit
     with:
       environment: staging
       artifact: cdk-out-${{ github.sha }}
@@ -45,6 +47,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    secrets: inherit
     with:
       environment: prod
       artifact: cdk-out-${{ github.sha }}
@@ -89,6 +92,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    secrets: inherit
     with:
       environment: prod
       artifact: cdk-out-rollback-${{ github.run_id }}
