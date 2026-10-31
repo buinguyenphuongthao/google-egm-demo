@@ -9,7 +9,13 @@ import { fileURLToPath } from 'node:url';
 
 const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'security-gate.sh');
 
-function setup({ status = 'complete', findings = [], validatorExit = 0, metadata = true } = {}) {
+function setup({
+  status = 'complete',
+  findings = [],
+  validatorExit = 0,
+  validatorBody = `process.exit(${validatorExit});`,
+  metadata = true,
+} = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
   const runDir = path.join(dir, 'run');
   const skillDir = path.join(dir, 'skill');
@@ -17,13 +23,18 @@ function setup({ status = 'complete', findings = [], validatorExit = 0, metadata
   fs.mkdirSync(skillDir);
   if (metadata) fs.writeFileSync(path.join(runDir, 'run-metadata.json'), JSON.stringify({ run_status: status }));
   fs.writeFileSync(path.join(runDir, 'findings.json'), JSON.stringify(findings));
-  fs.writeFileSync(path.join(skillDir, 'validate-findings.cjs'), `process.exit(${validatorExit});`);
+  fs.writeFileSync(path.join(skillDir, 'validate-findings.cjs'), validatorBody);
   const summary = path.join(dir, 'summary.md');
   const result = spawnSync('bash', [script, runDir, skillDir], {
     encoding: 'utf8',
     env: { ...process.env, GITHUB_STEP_SUMMARY: summary },
   });
-  return { status: result.status, summary: fs.existsSync(summary) ? fs.readFileSync(summary, 'utf8') : '' };
+  return {
+    status: result.status,
+    summary: fs.existsSync(summary) ? fs.readFileSync(summary, 'utf8') : '',
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
 }
 
 const confirmed = (severity, title = 'secret title') => ({
@@ -52,4 +63,12 @@ test('never prints finding details to the public summary', () => {
   const r = setup({ findings: [confirmed('high', 'SQL injection in handler.ts line 42')] });
   assert.doesNotMatch(r.summary, /SQL injection|handler\.ts/);
   assert.match(r.summary, /high/);
+});
+
+test('keeps validator error details out of public logs', () => {
+  const r = setup({
+    validatorBody: `process.stderr.write('invalid value "src/secret/path.ts"'); process.exit(1);`,
+  });
+  assert.equal(r.status, 1);
+  for (const out of [r.summary, r.stdout, r.stderr]) assert.doesNotMatch(out, /src\/secret\/path\.ts/);
 });

@@ -16,7 +16,7 @@ fail() {
 
 [ -f "$run_dir/run-metadata.json" ] || fail "no run-metadata.json (audit did not run)"
 [ -f "$run_dir/findings.json" ] || fail "no findings.json"
-node "$skill_dir/validate-findings.cjs" "$run_dir/findings.json" > /dev/null || fail "findings.json failed schema validation"
+node "$skill_dir/validate-findings.cjs" "$run_dir/findings.json" > /dev/null 2>&1 || fail "findings.json failed schema validation"
 
 status=$(jq -r '.run_status' "$run_dir/run-metadata.json")
 counts=$(jq -r '
