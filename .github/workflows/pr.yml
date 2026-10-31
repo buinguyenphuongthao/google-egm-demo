@@ -189,6 +189,22 @@ jobs:
             because this repository's logs are public.
           claude_args: >-
             --allowedTools "Read,Grep,Glob,Write,Edit,Agent,Task,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git status:*),Bash(git show:*),Bash(mkdir:*),Bash(node .claude/skills/security-audit/validate-findings.cjs:*),Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-findings.cjs:*),Bash(node ${{ github.workspace }}/.claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
+      # Public log: tool names and counts only, never tool inputs (they can hold finding details).
+      - name: Summarize agent run
+        if: always()
+        env:
+          EXEC_FILE: ${{ steps.audit.outputs.execution_file }}
+        run: |
+          [ -f "$EXEC_FILE" ] || { echo "No agent execution file"; exit 0; }
+          jq -r '
+            [.[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name]
+            | group_by(.) | map("\(.[0])=\(length)") | "Tool calls: " + join(" ")' "$EXEC_FILE"
+          jq -r '
+            [.[] | select(.type == "result") | .permission_denials[]?
+              | if .tool_name == "Bash"
+                then "Bash(" + ((.tool_input.command // "") | split(" ")[0] | split("/")[-1] | gsub("[^A-Za-z0-9._-]"; "")) + ")"
+                else .tool_name end]
+            | "Denied: " + join(" ")' "$EXEC_FILE"
       - name: Enforce security verdict
         if: always()
         # HEAD is the checked-out merge commit, the same HEAD the audit diffed against.
@@ -200,3 +216,4 @@ jobs:
           paths: |
             ${{ runner.temp }}/security-audit
             .claude/audit.jsonl
+            ${{ steps.audit.outputs.execution_file }}
