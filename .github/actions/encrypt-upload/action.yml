@@ -18,6 +18,7 @@ runs:
           echo "::warning::No .github/audit-recipient.txt; skipping report upload (details stay private)"
           exit 0
         fi
+        sudo apt-get update -qq
         sudo apt-get install -y -qq age > /dev/null
         mapfile -t files < <(printf '%s\n' "$PATHS" | sed '/^$/d')
         tar czf "$RUNNER_TEMP/report.tar.gz" --ignore-failed-read "${files[@]}" 2>/dev/null || true
