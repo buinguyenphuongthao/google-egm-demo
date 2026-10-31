@@ -3,7 +3,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import { describe, it } from 'vitest';
 import { GithubOidcStack } from '../lib/github-oidc-stack';
 
-const repo = 'buinguyenphuongthao/google-egm-demo';
+const repo = 'buinguyenphuongthao@184891486/google-egm-demo@1440565928';
 const template = Template.fromStack(new GithubOidcStack(new App(), 'test-oidc', { repo }));
 
 describe('GithubOidcStack', () => {
@@ -17,8 +17,8 @@ describe('GithubOidcStack', () => {
               StringEquals: {
                 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
                 'token.actions.githubusercontent.com:sub': [
-                  `repo:${repo}:environment:staging`,
-                  `repo:${repo}:environment:prod`,
+                  'repo:buinguyenphuongthao@184891486/google-egm-demo@1440565928:environment:staging',
+                  'repo:buinguyenphuongthao@184891486/google-egm-demo@1440565928:environment:prod',
                 ],
               },
             },
@@ -33,7 +33,8 @@ describe('GithubOidcStack', () => {
       PolicyDocument: {
         Statement: [
           Match.objectLike({
-            Action: 'sts:AssumeRole',
+            // The CDK CLI tags sessions when it switches to bootstrap roles.
+            Action: ['sts:AssumeRole', 'sts:TagSession'],
             Resource: Match.objectLike({
               'Fn::Join': Match.arrayWith([Match.arrayWith([Match.stringLikeRegexp('role/cdk-hnb659fds-\\*')])]),
             }),
