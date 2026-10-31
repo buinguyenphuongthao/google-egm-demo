@@ -28,7 +28,10 @@ export class AppStack extends Stack {
     const isProd = props.stage === 'prod';
     const removalPolicy = isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY;
 
-    const table = new dynamodb.Table(this, 'Notes', {
+    // The retired notes table. Nothing reads it; its last items expire by TTL. It stays in
+    // the stack because removing it would orphan it in prod (RETAIN), and deleting it is a
+    // separate decision (docs/plans/2026-10-31-kanban-board-design.md, rollout step 4).
+    new dynamodb.Table(this, 'Notes', {
       partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'expiresAt',
@@ -36,8 +39,7 @@ export class AppStack extends Stack {
       removalPolicy,
     });
 
-    // Kanban board: one partition per project (pk), item type and id in sk. A new table
-    // rather than a sort key on Notes, which would replace that table.
+    // Kanban board: one partition per project (pk), item type and id in sk.
     const boardTable = new dynamodb.Table(this, 'Board', {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
@@ -65,14 +67,12 @@ export class AppStack extends Stack {
       memorySize: 256,
       timeout: Duration.seconds(10),
       environment: {
-        TABLE_NAME: table.tableName,
         BOARD_TABLE_NAME: boardTable.tableName,
         VERSION: props.version,
         ORIGIN_VERIFY: originVerify,
       },
       logGroup: new logs.LogGroup(this, 'ApiLogs', { retention: logs.RetentionDays.TWO_WEEKS, removalPolicy }),
     });
-    table.grantReadWriteData(fn);
     boardTable.grantReadWriteData(fn);
 
     const api = new apigw.HttpApi(this, 'HttpApi', {

@@ -1,6 +1,5 @@
 // Kanban board model: input parsing and the rules for expiry, caps, and the done column.
 // See docs/plans/2026-10-31-kanban-board-design.md.
-import { SMOKE_TTL_SECONDS } from './notes';
 
 export interface Project {
   id: string;
@@ -47,6 +46,8 @@ export type BoardItem =
 
 export const BOARD_MAX_BODY_BYTES = 16 * 1024;
 export const DONE_TTL_SECONDS = 7 * 24 * 3600;
+// Smoke projects expire soon in case a smoke run dies before cleaning up.
+export const SMOKE_TTL_SECONDS = 3600;
 export const SMOKE_PREFIX = 'smoke-';
 export const CAPS = { projects: 50, columns: 20, cards: 1000, labels: 30 } as const;
 export const LABEL_COLORS = ['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'] as const;

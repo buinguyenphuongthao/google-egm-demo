@@ -2,18 +2,11 @@ import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CAPS, DONE_TTL_SECONDS, type BoardItem } from '../src/board';
 import { createHandler } from '../src/handler';
-import type { NotesRepo } from '../src/repo';
 import { memoryBoardRepo } from './memory-board-repo';
 
 const START = new Date('2026-11-01T00:00:00Z');
 const EPOCH = START.getTime() / 1000;
 const MISSING = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
-
-const notesRepo: NotesRepo = {
-  list: async () => [],
-  create: async () => {},
-  delete: async () => false,
-};
 
 function event(method: string, path: string, body?: unknown): APIGatewayProxyEventV2 {
   return {
@@ -38,7 +31,6 @@ beforeEach(() => {
   clock = START;
   let n = 0;
   const handler = createHandler({
-    repo: notesRepo,
     boardRepo: repo,
     version: 'v1',
     now: () => clock,

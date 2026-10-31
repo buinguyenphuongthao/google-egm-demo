@@ -61,11 +61,16 @@ describe('AppStack', () => {
       });
       const notes = Object.entries(tables).find(([id]) => id.startsWith('Notes'))![1];
       expect(board.DeletionPolicy).toBe(notes.DeletionPolicy);
-      // The Notes table is unchanged: same key schema as before the board.
+      // The retired Notes table stays, unchanged: same logical id and key schema.
+      expect(Object.keys(tables).filter((id) => id.startsWith('Notes'))).toEqual(['Notes5BB3582F']);
       expect(notes.Properties.KeySchema).toEqual([{ AttributeName: 'id', KeyType: 'HASH' }]);
       t.hasResourceProperties('AWS::Lambda::Function', {
         Environment: { Variables: Match.objectLike({ BOARD_TABLE_NAME: { Ref: boardIds[0] } }) },
       });
+      // Nothing reads Notes any more.
+      for (const fn of Object.values(t.findResources('AWS::Lambda::Function'))) {
+        expect(fn.Properties.Environment?.Variables?.TABLE_NAME).toBeUndefined();
+      }
     },
   );
 
@@ -76,7 +81,7 @@ describe('AppStack', () => {
     });
   });
 
-  it('scopes the API Lambda role to the Notes and Board tables', () => {
+  it('scopes the API Lambda role to the Board table', () => {
     const policies = Object.values(staging.findResources('AWS::IAM::Policy')).filter((p) =>
       JSON.stringify(p.Properties.Roles).includes('ApiFunctionServiceRole'),
     );
@@ -86,7 +91,8 @@ describe('AppStack', () => {
         const text = JSON.stringify(resource);
         if (text.includes('AWS::NoValue')) continue;
         expect(resource).not.toBe('*');
-        expect(text).toMatch(/(Notes|Board)[0-9A-F]{8}/);
+        expect(text).toMatch(/Board[0-9A-F]{8}/);
+        expect(text).not.toMatch(/Notes/);
       }
     }
   });
@@ -121,7 +127,7 @@ describe('AppStack', () => {
     (_s, t) => {
       t.resourceCountIs('AWS::SecretsManager::Secret', 1);
       const apiFns = Object.values(t.findResources('AWS::Lambda::Function')).filter(
-        (f) => f.Properties.Environment?.Variables?.TABLE_NAME !== undefined,
+        (f) => f.Properties.Environment?.Variables?.BOARD_TABLE_NAME !== undefined,
       );
       expect(apiFns).toHaveLength(1);
       const envValue = apiFns[0]!.Properties.Environment.Variables.ORIGIN_VERIFY;

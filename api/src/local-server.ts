@@ -3,10 +3,8 @@ import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { createServer } from 'node:http';
 import { createDynamoBoardRepo } from './board-repo';
 import { createHandler } from './handler';
-import { createDynamoRepo } from './repo';
 
 const port = Number(process.env.PORT ?? 3001);
-const tableName = process.env.TABLE_NAME ?? 'notes-local';
 const boardTableName = process.env.BOARD_TABLE_NAME ?? 'board-local';
 const endpoint = process.env.DYNAMODB_ENDPOINT ?? 'http://localhost:8000';
 
@@ -25,11 +23,9 @@ async function ensureTable(name: string, keys: string[]) {
   }
 }
 
-await ensureTable(tableName, ['id']);
 await ensureTable(boardTableName, ['pk', 'sk']);
 
 const handler = createHandler({
-  repo: createDynamoRepo(tableName, endpoint),
   boardRepo: createDynamoBoardRepo(boardTableName, endpoint),
   version: process.env.VERSION ?? 'dev',
 });

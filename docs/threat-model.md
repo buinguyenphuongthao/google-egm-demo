@@ -2,20 +2,18 @@
 
 ## What the app is
 
-An owner-only notes app, moving to a Kanban board (projects, columns, cards, labels; design
-in `docs/plans/2026-10-31-kanban-board-design.md`). Until the cleanup step both exist: the
-notes API on the `Notes` table and the board API on the `Board` table. Only the owner's
-allowlisted IPv4 addresses, and CI smoke tests carrying a secret token, can reach staging
-or prod; everyone else gets 403 at the edge. Within that boundary there are no user
-accounts: anyone admitted may read, create, change, and delete any note or board item.
-Notes and board items must not contain personal data; the UI does not ask for any.
+An owner-only Kanban board (projects, columns, cards, labels; design in
+`docs/plans/2026-10-31-kanban-board-design.md`). The board API stores everything in the
+`Board` table. The retired `Notes` table stays in the stack, but no code or role can reach
+it. Only the owner's allowlisted IPv4 addresses, and CI smoke tests carrying a secret token,
+can reach staging or prod; everyone else gets 403 at the edge. Within that boundary there
+are no user accounts: anyone admitted may read, create, change, and delete any board item.
+Board items must not contain personal data; the UI does not ask for any.
 
 ## Intended behavior (not findings)
 
-- No per-user authentication: an admitted request may list/create/delete any note, and
-  read/create/change/delete any project, column, card, or label.
-- Notes expire after 7 days (DynamoDB TTL; smoke-test notes after 1 hour). TTL deletion is
-  eventual, so an expired note may still be listed for a while.
+- No per-user authentication: an admitted request may read/create/change/delete any
+  project, column, card, or label.
 - Board data does not expire, except: a card in its project's done column expires 7 days
   after entering it, and everything in a smoke project (named `smoke-` when created)
   expires 1 hour after the project was created. The board API treats items past
@@ -25,8 +23,6 @@ Notes and board items must not contain personal data; the UI does not ask for an
 - Board writes are last-write-wins, with no transactions: a project delete removes
   children first and the project last, and a label delete leaves its ID on cards, which
   reads ignore.
-- List returns at most 1000 notes, newest first among those scanned. Past that cap a note
-  may exist but not be listed.
 - `/api/health` reveals the deployed git SHA to admitted callers (the repo is public anyway).
 - The raw execute-api URL exists but returns 403: the Lambda accepts only requests carrying
   CloudFront's `x-origin-verify` header.
@@ -38,9 +34,9 @@ Notes and board items must not contain personal data; the UI does not ask for an
 |---|---|
 | Internet -> CloudFront | The `owner-only` CloudFront Function admits only `ip:<addr>` keys or a matching `x-egm-smoke-token` from the environment's KeyValueStore, and fails closed. Any fail-open path is a finding. |
 | CloudFront -> API origin | The Lambda rejects requests without the `x-origin-verify` secret (Secrets Manager, resolved at deploy). |
-| Browser -> API | All input untrusted. Notes: body <= 4 KB, text <= 500 chars, tag `[a-z0-9-]{1,40}`. Board: body <= 16 KB; project name 1-80, column name 1-40, card title 1-200, description 0-2000, label name 1-30 (Unicode code points, trimmed); label color one of 8 fixed names, never raw CSS; rank 1-64 chars of the fractional-indexing alphabet; `labelIds` <= 30, unique. Every ID must belong to the project in the path. IDs, `expiresAt`, and `doneAt` are set by the server only. |
-| API -> DynamoDB | Lambda role limited to the `Notes` and `Board` tables. No other AWS access. |
-| User text -> browser | Note text and every board name, title, description, and label name are rendered as text only. Any HTML/script execution is a vulnerability (stored XSS). |
+| Browser -> API | All input untrusted. Body <= 16 KB; project name 1-80, column name 1-40, card title 1-200, description 0-2000, label name 1-30 (Unicode code points, trimmed); label color one of 8 fixed names, never raw CSS; rank 1-64 chars of the fractional-indexing alphabet; `labelIds` <= 30, unique. Every ID must belong to the project in the path. IDs, `expiresAt`, and `doneAt` are set by the server only. |
+| API -> DynamoDB | Lambda role limited to the `Board` table. No other AWS access; any access to `Notes` is a finding. |
+| User text -> browser | Every board name, title, description, and label name is rendered as text only. Any HTML/script execution is a vulnerability (stored XSS). |
 | Internet -> cost | API Gateway throttles at 10 rps / burst 20; board caps bound stored data. Unbounded spend paths are findings. |
 | PR author -> CI | PR content must not reach secrets, AWS credentials, or the deploy role. Workflows use `pull_request`, never `pull_request_target`. |
 | CI -> AWS | Only `deploy.yml` jobs in `staging`/`prod` environments may assume `egm-github-deploy`. |
@@ -49,7 +45,7 @@ Notes and board items must not contain personal data; the UI does not ask for an
 ## In scope for findings
 
 Injection, XSS, IAM wider than needed, secrets exposure, CI privilege escalation,
-supply-chain risks in workflows, data exposure beyond the notes table, unbounded cost.
+supply-chain risks in workflows, data exposure beyond the board table, unbounded cost.
 
 ## Residual risks (accepted, with mitigations)
 
