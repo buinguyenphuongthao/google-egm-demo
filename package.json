@@ -15,6 +15,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "test": "npm test --workspaces --if-present && npm run test:guards --if-present",
+    "test:guards": "node --test .github/scripts/security-gate.test.mjs",
     "build": "npm run build -w web",
     "test:e2e": "npm run e2e -w e2e",
     "test:smoke": "npm run smoke -w smoke",
