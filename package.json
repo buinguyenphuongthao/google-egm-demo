@@ -19,7 +19,7 @@
     "build": "npm run build -w web",
     "test:e2e": "npm run e2e -w e2e",
     "test:smoke": "npm run smoke -w smoke",
-    "db:local": "docker run --rm -d --name egm-dynamodb -p 8000:8000 amazon/dynamodb-local"
+    "db:local": "docker run --rm -d --name egm-dynamodb -p 8000:8000 amazon/dynamodb-local:3.3.2@sha256:6ada631ec7aa5fc83446855eb17233e3dad184fec47477e8140c6c569cfe0c86"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

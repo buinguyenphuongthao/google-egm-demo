@@ -24,7 +24,7 @@ runs:
         tar czf "$RUNNER_TEMP/report.tar.gz" --ignore-failed-read "${files[@]}" 2>/dev/null || true
         age -R .github/audit-recipient.txt -o "$RUNNER_TEMP/report.tar.gz.age" "$RUNNER_TEMP/report.tar.gz"
         rm -f "$RUNNER_TEMP/report.tar.gz"
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: ${{ inputs.name }}
         path: ${{ runner.temp }}/report.tar.gz.age

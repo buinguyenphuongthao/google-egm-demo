@@ -20,14 +20,14 @@ jobs:
       confirmed: ${{ steps.counts.outputs.confirmed }}
       by_sev: ${{ steps.counts.outputs.by_sev }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       # runner.temp is not available in job-level env, so export AUDIT_DIR here.
       - run: |
           echo "AUDIT_DIR=$RUNNER_TEMP/security-audit" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/security-audit/run-1"
-      - uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d
+      - uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
         env:
           AGENT_WRITE_ROOT: ${{ runner.temp }}/security-audit
         with:
