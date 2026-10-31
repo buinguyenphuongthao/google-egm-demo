@@ -130,7 +130,7 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
     [attempt],
   );
 
-  const update =(change: (b: Board) => Board) => setBoard((b) => b && change(b));
+  const update = (change: (b: Board) => Board) => setBoard((b) => b && change(b));
   const replaceCard = (card: Card) => update((b) => ({ ...b, cards: b.cards.map((c) => (c.id === card.id ? card : c)) }));
   const replaceColumn = (column: Column) =>
     update((b) => ({ ...b, columns: b.columns.map((c) => (c.id === column.id ? column : c)) }));
