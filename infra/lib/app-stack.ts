@@ -36,6 +36,8 @@ export class AppStack extends Stack {
 
     // CloudFront sends this value to the API; the Lambda rejects requests without it,
     // which closes the public execute-api URL. Resolved by CloudFormation at deploy time.
+    // Never rotate in place: only the Lambda re-resolves it each deploy, so the Distribution would
+    // keep the old value and every API call would 403. To rotate, change the construct id.
     const originSecret = new secretsmanager.Secret(this, 'OriginVerifySecret', {
       description: 'Header value CloudFront sends so the API accepts only CloudFront traffic',
       generateSecretString: { excludePunctuation: true, passwordLength: 48 },
@@ -49,7 +51,11 @@ export class AppStack extends Stack {
       architecture: lambda.Architecture.ARM_64,
       memorySize: 256,
       timeout: Duration.seconds(10),
-      environment: { TABLE_NAME: table.tableName, VERSION: props.version, ORIGIN_VERIFY: originVerify },
+      environment: {
+        TABLE_NAME: table.tableName,
+        VERSION: props.version,
+        ORIGIN_VERIFY: originVerify,
+      },
       logGroup: new logs.LogGroup(this, 'ApiLogs', { retention: logs.RetentionDays.TWO_WEEKS, removalPolicy }),
     });
     table.grantReadWriteData(fn);
@@ -100,6 +106,7 @@ export class AppStack extends Stack {
     const accessStore = new cloudfront.KeyValueStore(this, 'AccessStore', {
       comment: `Owner-only access list for ${props.stage}`,
     });
+    accessStore.applyRemovalPolicy(removalPolicy);
     new CfnOutput(this, 'AccessStoreArn', { value: accessStore.keyValueStoreArn });
 
     new CfnOutput(this, 'SiteUrl', { value: `https://${distribution.distributionDomainName}` });
