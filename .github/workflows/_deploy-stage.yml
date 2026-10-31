@@ -55,6 +55,8 @@ jobs:
         env:
           SMOKE_BASE_URL: ${{ steps.deploy.outputs.site_url }}
           EXPECTED_VERSION: ${{ inputs.version }}
+          # Environment secret; the edge function admits CI only with this header.
+          SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
         run: npm run test:smoke
       # prod and its rollback run in the same workflow run, so the name must tell them apart.
       - if: failure()
@@ -62,9 +64,12 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: echo "short=${VERSION:0:7}" >> "$GITHUB_OUTPUT"
+      # Traces and the HTML report record request headers, including the smoke token, and
+      # artifacts are public on this repo, so the report is encrypted like audit output.
       - if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: ./.github/actions/encrypt-upload
         with:
           name: smoke-report-${{ inputs.environment }}-${{ inputs.ref && 'rollback' || 'deploy' }}-${{ steps.report-name.outputs.short }}-${{ github.run_attempt }}
-          path: smoke/playwright-report
-          retention-days: 7
+          paths: |
+            smoke/playwright-report
+            smoke/test-results

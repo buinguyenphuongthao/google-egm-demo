@@ -40,3 +40,15 @@ test('API round trip', async ({ request }) => {
     expect((await request.delete(`/api/notes/${note.id}`)).status()).toBe(204);
   }
 });
+
+// Proves the lock is on. From an allowlisted IP this fails, so skip it locally with
+// `npm run test:smoke -- --grep-invert anonymous`.
+test('the site is closed to anonymous visitors', async ({ playwright, baseURL }) => {
+  const anon = await playwright.request.newContext({ baseURL, extraHTTPHeaders: {} });
+  try {
+    expect((await anon.get('/')).status()).toBe(403);
+    expect((await anon.get('/api/health')).status()).toBe(403);
+  } finally {
+    await anon.dispose();
+  }
+});
