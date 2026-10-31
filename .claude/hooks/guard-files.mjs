@@ -16,7 +16,9 @@ const PROJECT_DENY = [
   [/^infra\/lib\/github-oidc-stack\.ts$/i, 'The OIDC trust stack is protected. Ask the user.'],
   [/^\.github\/audit-recipient\.txt$/i, 'The audit encryption key is protected. Ask the user.'],
 ];
-const PROJECT_ASK = [[/^\.github\/workflows\//i, 'Workflow changes affect the deployment gates. Confirm this edit.']];
+const PROJECT_ASK = [
+  [/^\.github\/(workflows|actions|scripts)\//i, 'Workflow, action, and gate-script changes affect the deployment gates. Confirm this edit.'],
+];
 
 export function checkFileWrite({ filePath, projectDir, writeRoot }) {
   const abs = path.resolve(projectDir, filePath);
