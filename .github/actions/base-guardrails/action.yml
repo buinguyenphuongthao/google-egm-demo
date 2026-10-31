@@ -1,0 +1,26 @@
+name: base-guardrails
+description: >
+  Replace this checkout's .claude/ and audit recipient with the base branch versions so a
+  PR cannot weaken the hooks, skill, or encryption key used to review it.
+inputs:
+  base-ref:
+    description: Base branch name
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BASE: ${{ inputs.base-ref }}
+      run: |
+        git fetch --quiet origin "$BASE"
+        if git cat-file -e "origin/$BASE:.claude/settings.json" 2>/dev/null; then
+          rm -rf .claude
+          git checkout "origin/$BASE" -- .claude
+          echo "Using .claude/ from origin/$BASE"
+        else
+          echo "::warning::origin/$BASE has no .claude/settings.json yet; using this PR's guardrails (bootstrap only)"
+        fi
+        if git cat-file -e "origin/$BASE:.github/audit-recipient.txt" 2>/dev/null; then
+          git checkout "origin/$BASE" -- .github/audit-recipient.txt
+        fi
