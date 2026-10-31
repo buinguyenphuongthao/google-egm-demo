@@ -12,6 +12,19 @@
 
 ---
 
+## Implementation notes (deviations from this plan)
+
+The task bodies below are kept as written. What was actually built differs as follows:
+
+- Toolchain resolved newer than assumed: TypeScript 6, ESLint 10, Vitest 5, React 19, Vite 8, aws-cdk-lib 2.275. Plan code worked unchanged except as noted here.
+- Tasks 13 and 15: `runner.temp` is not allowed in job-level `env`, so `AUDIT_DIR` is exported via `$GITHUB_ENV` in a run step instead.
+- Task 13: the test file imports `process` from `node:process` (lint `no-undef`); `encrypt-upload` runs `apt-get update` before installing age.
+- Task 14: `_deploy-stage.yml` gained an optional `ref` input; rollback checks out and smoke-tests the rolled-back commit.
+- Task 15 and `security-gate.sh`: validator output, including stderr, is silenced (`> /dev/null 2>&1`) so finding details can't leak into public logs; a 5th gate test covers it.
+- Task 16: hooks are stricter than planned: git global options before `push` are handled, `push --mirror` is treated as force, and protected-path matching is case-insensitive.
+
+---
+
 ## Conventions for the executor
 
 - Work on branch `feat/pipeline`. Commit after every task. Do not push to `main`.

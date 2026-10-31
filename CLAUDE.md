@@ -4,9 +4,8 @@ Demo of an agent-driven CI/CD pipeline. A small Notes app (SPA + API + DynamoDB 
 exists mainly to give the pipeline something real to gate. Every deploy must pass four gates:
 AI code review, AI security audit, Playwright E2E tests, and post-deploy smoke tests.
 
-> Status: design approved, see `docs/plans/2026-10-31-agent-cicd-pipeline-design.md`.
-> Directories below are planned, not yet scaffolded. Update this file as pieces land;
-> keep it describing what IS, not what was planned.
+> Status: implemented. Design: `docs/plans/2026-10-31-agent-cicd-pipeline-design.md`.
+> Setup: `docs/setup.md`. Keep this file describing what IS, not what was planned.
 
 ## Architecture
 
@@ -28,18 +27,32 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 | Path | Contents |
 |---|---|
 | `web/` | Vite + React + TypeScript SPA |
-| `api/` | Lambda handlers (TypeScript, Node 22), bundled by CDK via esbuild |
-| `infra/` | CDK app (TypeScript) |
+| `api/` | Lambda handler (TypeScript, Node 22 runtime), bundled by CDK via esbuild; local dev server |
+| `infra/` | CDK app (TypeScript): app stack and `egm-github-oidc` bootstrap stack |
 | `e2e/` | Playwright specs run on PRs against a local build + DynamoDB Local |
 | `smoke/` | Playwright smoke specs run after each deploy against the live URL |
+| `.claude/hooks/`, `.claude/settings.json` | Agent guardrail hooks (see below) |
 | `.claude/skills/security-audit/` | Vendored copy of cloudflare/security-audit-skill |
-| `.github/workflows/` | `pr.yml`, `deploy.yml`, `security-weekly.yml` |
-| `docs/plans/` | Design docs and implementation plans |
+| `.github/workflows/` | `pr.yml`, `deploy.yml` (+ reusable `_deploy-stage.yml`), `security-weekly.yml` |
+| `.github/actions/` | Composite actions: `setup`, `base-guardrails`, `encrypt-upload` |
+| `.github/scripts/` | `security-gate.sh` (audit verdict gate) and its tests |
+| `docs/` | `setup.md` (one-time setup), `threat-model.md`, `plans/` (design + plan) |
+
+## Commands
+
+```
+npm run db:local     # start DynamoDB Local (Docker)
+npm run dev -w api   # API on :3001
+npm run dev -w web   # SPA with /api proxy
+npm test             # unit, infra, gate-script, and hook tests
+npm run test:e2e     # Playwright against local build + DynamoDB Local
+npm run synth -w infra
+```
 
 ## Pipeline
 
 - **`pr.yml`** (required checks via branch protection; branch must be up to date):
-  - `build`: typecheck, lint, unit tests, `cdk synth`
+  - `build`: typecheck, lint, `npm test`, SPA build, `cdk synth`
   - `code-review`: `anthropics/claude-code-action` with `CLAUDE_CODE_OAUTH_TOKEN`. Posts
     inline comments and writes `review-verdict.json`. Fails only on critical findings.
   - `security-audit`: security-audit skill, full audit mode, `quick` profile, scoped to
@@ -90,6 +103,10 @@ This repo is public: logs, job summaries, artifacts, and issues are world-readab
   tool call is logged to `.claude/audit.jsonl` (gitignored).
 - Hooks are guardrails, not a security boundary. Do not try to work around a blocked
   action; stop and ask the user instead.
+- If a hook blocks something you need, stop and ask the user. Hook and settings changes
+  are made by the user, not agents.
+- Hook scripts (and `security-gate.sh`) are tested by `npm run test:guards`, which
+  `npm test` also runs.
 - In CI, review and audit jobs restore `.claude/` from `main`, run with a read-only tool
   allowlist, and have no AWS credentials. Only `deploy.yml` can touch AWS.
 
