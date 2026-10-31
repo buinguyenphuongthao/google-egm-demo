@@ -104,9 +104,8 @@ This repo is public: logs, job summaries, artifacts, and issues are world-readab
 - Every note expires after 7 days (DynamoDB TTL `expiresAt`), and `GET /api/notes`
   returns at most 1000 notes (`MAX_LIST`), so tests must not assume a note is listed.
 - Smoke tests send `SMOKE_TOKEN` (GitHub environment secret) and include a test that an
-  anonymous request gets 403. Run locally from an allowlisted IP with
-  `--grep-invert anonymous`. Their failure reports are encrypted before upload because
-  traces record request headers.
+  anonymous request gets 403 (CI only: it would fail from the owner's allowlisted IP).
+  Their failure reports are encrypted before upload because traces record request headers.
 - Smoke tests must be safe against prod: they only create data tagged `smoke-<sha>` with a
   short (1 hour) DynamoDB TTL, and clean up after themselves.
 - E2E tests own the full UI flows; smoke tests stay small (under ~1 minute) and read-mostly.

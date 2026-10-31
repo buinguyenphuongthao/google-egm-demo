@@ -59,7 +59,8 @@ function expectForbidden(result: Request | Response) {
 describe('owner-only edge function', () => {
   it('has the cloudfront import exactly once, and the KVS placeholder exactly once', () => {
     expect(raw.split(IMPORT_LINE).length - 1).toBe(1);
-    expect(raw.split('__KVS_ID__').length - 1).toBe(2); // one in the code, one in the header comment
+    // Only in code: CDK replaces every occurrence, so a comment would leak the store id.
+    expect(raw.split('__KVS_ID__').length - 1).toBe(1);
     expect(raw.split("cf.kvs('__KVS_ID__')").length - 1).toBe(1);
   });
 
@@ -135,5 +136,33 @@ describe('owner-only edge function', () => {
     const e = event(STRANGER, '');
     expectForbidden(await handler(e));
     expect(e.request.headers).not.toHaveProperty('x-egm-smoke-token');
+  });
+
+  it('denies when the first of repeated token headers is wrong, and strips them all', async () => {
+    const { handler } = withStore(store);
+    const e = event(STRANGER, 'wrong');
+    (e.request.headers['x-egm-smoke-token'] as Header & { multiValue?: Header[] }).multiValue = [
+      { value: 'wrong' },
+      { value: TOKEN },
+    ];
+    expectForbidden(await handler(e));
+    expect(e.request.headers).not.toHaveProperty('x-egm-smoke-token');
+  });
+
+  it('allows an IP key whose stored value is empty (presence is what counts)', async () => {
+    const { handler } = withStore({ [`ip:${OWNER}`]: '' });
+    const e = event(OWNER);
+    expect(await handler(e)).toBe(e.request);
+  });
+
+  it('denies when the viewer IP is missing, even if the store has an ip:undefined key', async () => {
+    const { handler } = withStore({ ...store, 'ip:undefined': 'x', 'ip:': 'x' });
+    const noViewer = event(STRANGER);
+    delete (noViewer as { viewer?: unknown }).viewer;
+    expectForbidden(await handler(noViewer));
+    const noIp = event(STRANGER);
+    (noIp.viewer as { ip?: string }).ip = undefined;
+    expectForbidden(await handler(noIp));
+    expectForbidden(await handler(event('')));
   });
 });

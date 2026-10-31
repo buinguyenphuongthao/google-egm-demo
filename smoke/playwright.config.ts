@@ -14,6 +14,7 @@ export default defineConfig({
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL,
+    // Sent on every request the page makes; the SPA calls no third-party origins.
     extraHTTPHeaders: token ? { 'x-egm-smoke-token': token } : {},
     trace: 'retain-on-failure',
   },

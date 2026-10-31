@@ -1,6 +1,6 @@
 // CloudFront Function (JS 2.0), viewer request. Lets through the owner's allowlisted IPs
 // and CI requests carrying the smoke token; everyone else gets 403. Fails closed.
-// CDK replaces __KVS_ID__ with the KeyValueStore id when it attaches this function.
+// CDK substitutes the KeyValueStore id for the placeholder passed to cf.kvs below.
 import cf from 'cloudfront';
 
 const kvs = cf.kvs('__KVS_ID__');
@@ -23,7 +23,8 @@ async function handler(event) {
     const expected = await lookup('smoke-token');
     if (expected && token.value === expected) return request;
   }
-  if ((await lookup('ip:' + event.viewer.ip)) !== undefined) return request;
+  const ip = event.viewer && event.viewer.ip;
+  if (ip && (await lookup('ip:' + ip)) !== undefined) return request;
   return {
     statusCode: 403,
     statusDescription: 'Forbidden',

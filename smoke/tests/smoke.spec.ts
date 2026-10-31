@@ -41,9 +41,9 @@ test('API round trip', async ({ request }) => {
   }
 });
 
-// Proves the lock is on. From an allowlisted IP this fails, so skip it locally with
-// `npm run test:smoke -- --grep-invert anonymous`.
+// Proves the lock is on. Runs only in CI: from the owner's allowlisted IP it would fail.
 test('the site is closed to anonymous visitors', async ({ playwright, baseURL }) => {
+  test.skip(!process.env.CI, 'needs a non-allowlisted IP (CI runner)');
   const anon = await playwright.request.newContext({ baseURL, extraHTTPHeaders: {} });
   try {
     expect((await anon.get('/')).status()).toBe(403);
