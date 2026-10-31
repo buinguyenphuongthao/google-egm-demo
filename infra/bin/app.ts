@@ -20,6 +20,8 @@ new AppStack(app, 'egm-prod', { ...shared, stage: 'prod' });
 
 new GithubOidcStack(app, 'egm-github-oidc', {
   env,
-  repo: 'buinguyenphuongthao/google-egm-demo',
+  // GitHub issues immutable OIDC subjects for this repo: owner@ownerId/name@repoId.
+  // Check with: gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+  repo: 'buinguyenphuongthao@184891486/google-egm-demo@1440565928',
   existingProviderArn: app.node.tryGetContext('githubOidcProviderArn'),
 });
