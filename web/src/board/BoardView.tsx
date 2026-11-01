@@ -36,6 +36,7 @@ import { CardPanel } from './CardPanel';
 import { ColumnView } from './ColumnView';
 import { LabelChip } from './LabelChip';
 import { LabelsDialog } from './LabelsDialog';
+import { matchesFilter } from './labels';
 import { byRank, findColumn, groupCards, rankAfter, rankAt, type Order } from './order';
 
 interface Props {
@@ -143,7 +144,7 @@ export function BoardView({ projectId, leading, onRenamed, onDeleted }: Props) {
     [board],
   );
   const activeFilter = filter.filter((id) => labels.some((l) => l.id === id));
-  const shown = (card: Card) => activeFilter.length === 0 || card.labelIds.some((id) => activeFilter.includes(id));
+  const shown = (card: Card) => matchesFilter(card.labelIds, activeFilter);
   const order = useMemo(() => dragOrder ?? groupCards(columns, board?.cards ?? []), [dragOrder, columns, board]);
 
   const sensors = useSensors(
