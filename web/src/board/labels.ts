@@ -15,3 +15,7 @@ export const CHIP_CLASSES: Record<LabelColor, string> = {
 };
 
 export const colorName = (c: LabelColor) => c[0]!.toUpperCase() + c.slice(1);
+
+/** A card shows when it has any of the filter's labels; an empty filter shows every card. */
+export const matchesFilter = (labelIds: string[], filter: string[]) =>
+  filter.length === 0 || labelIds.some((id) => filter.includes(id));
