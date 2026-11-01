@@ -104,6 +104,15 @@ jobs:
             incorrect behavior, data loss, or a security hole in production if merged. Style
             and preference are never critical.
 
+            Every behavior change must ship with a test. If the PR adds or changes behavior in
+            `api/src/`, `web/src/`, `infra/lib/`, `infra/edge/`, or `scripts/` and does not add
+            or update a test (in `api/test/`, `web/test/`, `infra/test/`, `scripts/`, or
+            `e2e/tests/`) that would fail if that behavior broke, post a 🔴 Critical finding
+            that names the untested behavior. Check that the test actually exercises the new
+            behavior; a test that only touches nearby code does not count. Not behavior changes:
+            refactors that existing tests already cover, styling or wording-only UI changes,
+            comments, docs, and dependency bumps.
+
             A PR runs its own copy of the gates, so if the PR changes anything under `.github/`
             or `.claude/`, or changes any `CLAUDE.md` or `docs/threat-model.md`, post one inline
             comment on the first such change starting exactly with "🟡 Warning Gate/guardrail
