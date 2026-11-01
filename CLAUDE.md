@@ -39,7 +39,7 @@ Browser -> CloudFront -+- /*     -> S3 (private, OAC)                 SPA assets
 
 | Path | Contents |
 |---|---|
-| `web/` | Vite + React + TypeScript SPA |
+| `web/` | Vite + React + TypeScript SPA; unit tests (Vitest) in `web/test/` |
 | `api/` | Lambda handler (TypeScript, Node 22 runtime), bundled by CDK via esbuild; local dev server |
 | `infra/` | CDK app (TypeScript): app stack and `egm-github-oidc` bootstrap stack |
 | `e2e/` | Playwright specs run on PRs against a local build + DynamoDB Local |
@@ -71,7 +71,8 @@ npm run access -- list   # owner only: IP allowlist and smoke token (needs egm-a
     `.mcp.json`, `docs/threat-model.md`): a PR runs its own copy of the gates, so the
     maintainer reviews those changes line by line.
   - `code-review`: `anthropics/claude-code-action` with `CLAUDE_CODE_OAUTH_TOKEN`. Posts
-    inline comments (a 🟡 Warning on any gate/guardrail change) and returns a structured
+    inline comments (a 🟡 Warning on any gate/guardrail change, a 🔴 Critical on a behavior
+    change without a test) and returns a structured
     verdict via `--json-schema` (`critical_count`, `warning_count`, `summary`). Fails only
     on critical findings or a missing verdict.
   - `security-audit`: security-audit skill, full audit mode, `quick` profile, scoped to
@@ -122,6 +123,10 @@ This repo is public: logs, job summaries, artifacts, and issues are world-readab
   cap), and delete it afterwards.
 - New npm packages are pinned to exact versions and listed in the PR that adds them.
 - E2E tests own the full UI flows; smoke tests stay small (under ~1 minute) and read-mostly.
+- Every behavior change ships with a test that fails if the behavior breaks: unit tests in
+  `api/test/`, `web/test/`, `infra/test/`, or `scripts/`; UI flows in `e2e/tests/`. Keep UI
+  logic in plain functions so it can be unit tested. The code review treats an untested
+  behavior change as critical.
 - DynamoDB changes are additive only (new attributes/indexes; no renames or removals in the
   same release). Rollback redeploys code, not data, so the previous version must still work.
 
